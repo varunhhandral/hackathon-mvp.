@@ -143,31 +143,31 @@ def render_personal_dashboard(stu=None):
     with tab_place:
         st.subheader("How to Maintain & Upgrade Both Skills and Academic Score")
         uid_p = stu["USN"] if stu else "def_p"
-        stu_sgpa = st.session_state.get("calc_sgpa", float(stu["SGPA"]) if stu and "SGPA" in stu else 6.80)
+        stu_sgpa = st.session_state.get("calc_sgpa", float(stu["SGPA"]) if stu and "SGPA" in stu else 7.55)
 
         p1, p2 = st.columns(2)
-        min_cutoff = p1.number_input("Target Placement Cutoff", 5.5, 9.0, 7.0, 0.25, key=f"pcut_{uid_p}")
-        hrs_avail = p2.slider("Daily Self-Study + Skill Hours", 1, 6, 3, key=f"phrs_{uid_p}")
+        min_cutoff = p1.number_input("Target Placement Cutoff", 5.5, 9.0, 7.25, 0.25, key=f"pcut_{uid_p}")
+        sems_completed = p2.number_input("Semesters Completed", 1, 7, 5, 1, key=f"psem_{uid_p}")
 
         all_skills = ["Python / Java / C++", "Data Structures & Algorithms", "Full-Stack Web (React/Node)", "SQL & DBMS", "Machine Learning / AI", "Cloud / Docker / Git", "System Design / OS"]
         init_sk = str(stu["Core Skills"]).split(", ") if stu and "Core Skills" in stu else ["Python / Java / C++", "SQL & DBMS"]
         init_sk = [s for s in init_sk if s in all_skills]
         sel_skills = st.multiselect("Current Skills (Select What You Already Know):", all_skills, default=init_sk, key=f"psk_{uid_p}")
 
-        # Realistic Step-Up Goal instead of impossible jump
-        realistic_next_sgpa = round(min(9.5, stu_sgpa + 0.85), 2)
+        target_next_sgpa = round(min(9.5, stu_sgpa + 0.85), 2)
         skill_readiness = int((len(sel_skills) / len(all_skills)) * 100)
         acad_split = "55% Academics / 45% Skills" if stu_sgpa < min_cutoff else "35% Academics / 65% Skills"
+        rem_sems = max(1, 7 - int(sems_completed))
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Realistic Next Goal", f"{realistic_next_sgpa:.2f} SGPA", f"+{realistic_next_sgpa - stu_sgpa:.2f} Step-Up")
+        c1.metric("Target Next Sem GPA", f"{target_next_sgpa:.2f} SGPA", f"+{target_next_sgpa - stu_sgpa:.2f} Step-Up")
         c2.metric("Skill Readiness", f"{skill_readiness}%", f"{len(sel_skills)}/{len(all_skills)} Skills")
         c3.metric("Recommended Split", acad_split.split("/")[0].strip())
 
         if stu_sgpa >= min_cutoff:
-            st.markdown(f'<div class="score-badge">Academic Cutoff Maintained ({stu_sgpa:.2f} &ge; {min_cutoff:.2f})! Spend 65% of your {hrs_avail} hrs/day building projects, DSA & internships to stand out.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="score-badge">Academic Cutoff Maintained ({stu_sgpa:.2f} &ge; {min_cutoff:.2f}) across {int(sems_completed)} completed semesters! Target {target_next_sgpa:.2f} SGPA next sem while spending 65% of your effort building projects, DSA & internships.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="score-badge">Don\'t stress about jumping to {min_cutoff:.2f} overnight! Focus on a realistic +0.85 step-up to {realistic_next_sgpa:.2f} SGPA while building strong skills that unlock skill-first companies (6.0+ criteria).</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="score-badge">With {int(sems_completed)} semesters completed ({rem_sems} left before placements), aim for a steady +0.85 step-up to {target_next_sgpa:.2f} SGPA while building strong skills that unlock skill-first companies (6.0+ criteria).</div>', unsafe_allow_html=True)
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
@@ -180,14 +180,14 @@ def render_personal_dashboard(stu=None):
         s_col2.markdown(f"""
         <div class="sw-box sw-wk"><strong>2. How to Upgrade Skills Alongside College</strong><br>
         &bull; Next Skill to Learn: <b>{missing_skills[0] if missing_skills else "System Design & Mock Interviews"}</b>.<br>
-        &bull; Daily Habit ({hrs_avail}h/day): 1 hr DSA/coding + 1 hr project build.<br>
+        &bull; Daily Habit ({int(sems_completed)}/8 Sems Done): 1 hr DSA/coding + 1 hr project build.<br>
         &bull; Turn college lab mini-projects into GitHub portfolio repos.</div>
         """, unsafe_allow_html=True)
 
         routine = [
-            {"Focus Area": "Academic Maintenance (Protect CIE & Pass All)", "Daily Time": f"{round(hrs_avail * (0.55 if stu_sgpa < min_cutoff else 0.35), 1)} hrs/day", "Concrete Weekly Action": "Revise same-day lecture notes + solve 5 VTU numericals/week"},
-            {"Focus Area": "Core Coding & Problem Solving (DSA)", "Daily Time": f"{round(hrs_avail * 0.30, 1)} hrs/day", "Concrete Weekly Action": "Solve 5–7 LeetCode/GFG problems/week in Python/Java/C++"},
-            {"Focus Area": f"Skill Upgrade ({missing_skills[0] if missing_skills else 'Full-Stack / AI'})", "Daily Time": f"{round(hrs_avail * (0.15 if stu_sgpa < min_cutoff else 0.35), 1)} hrs/day", "Concrete Weekly Action": "Build 1 working feature/week & push to GitHub for resume proof"}
+            {"Focus Area": "Academic Maintenance (Protect CIE & Pass All)", "Semesters Completed": f"{int(sems_completed)} / 8", "Concrete Weekly Action": "Revise same-day lecture notes + solve 5 VTU numericals/week"},
+            {"Focus Area": "Core Coding & Problem Solving (DSA)", "Semesters Completed": f"{int(sems_completed)} / 8", "Concrete Weekly Action": "Solve 5–7 LeetCode/GFG problems/week in Python/Java/C++"},
+            {"Focus Area": f"Skill Upgrade ({missing_skills[0] if missing_skills else 'Full-Stack / AI'})", "Semesters Completed": f"{int(sems_completed)} / 8", "Concrete Weekly Action": "Build 1 working feature/week & push to GitHub for resume proof"}
         ]
         st.dataframe(pd.DataFrame(routine), use_container_width=True)
 
