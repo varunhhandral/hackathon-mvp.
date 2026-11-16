@@ -30,7 +30,7 @@ div.stDownloadButton > button {background: linear-gradient(90deg, #0d9488, #0284
 .stu-stat {font-size: 0.83rem; color: #334155; margin: 3px 0; font-weight: 600;}
 .tag-ok {display: inline-block; background: #dcfce7; color: #166534; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
 .tag-risk {display: inline-block; background: #fee2e2; color: #991b1b; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
-.score-badge {background: linear-gradient(90deg, #eef2ff, #fae8ff); border-left: 4px solid #8b5cf6; padding: 9px 12px; border-radius: 10px; font-weight: 700; color: #1e1b4b; font-size: 0.86rem; margin-top: 6px;}
+.score-badge {background: linear-gradient(90deg, #eef2ff, #fae8ff); border-left: 4px solid #8b5cf6; padding: 10px 14px; border-radius: 10px; font-weight: 700; color: #1e1b4b; font-size: 0.88rem; margin-top: 6px;}
 .profile-banner {background: linear-gradient(90deg, #eef2ff, #fdf2f8); border: 1.5px solid #c4b5fd; padding: 14px 18px; border-radius: 16px; margin-bottom: 14px;}
 .sw-box {padding: 13px; border-radius: 14px; margin-bottom: 10px;}
 .sw-str {background: #f0fdf4; border-left: 5px solid #16a34a; color: #14532d;}
@@ -39,9 +39,9 @@ div.stDownloadButton > button {background: linear-gradient(90deg, #0d9488, #0284
 </style>
 <div class="hero">
   <h1>Student Performance & Placement Insights</h1>
-  <p>RNSIT Academic Predictor, Minimum CGPA Cutoff Tracker & Faculty Teaching Co-Pilot</p>
+  <p>RNSIT Academic Predictor, Step-by-Step Score & Skill Upgrader & Faculty Teaching Co-Pilot</p>
   <span class="pill">CIE (50) + Predicted SEE (50)</span>
-  <span class="pill">Min CGPA Cutoff Tracker</span>
+  <span class="pill">Skill & Score Growth Plan</span>
   <span class="pill">Faculty & Mentor Insights</span>
 </div>
 """, unsafe_allow_html=True)
@@ -64,7 +64,7 @@ def get_grade(tot, cie, see):
     return 4.0, "P"
 
 def style_grade(val):
-    g_map = {"O":"#dcfce7;color:#166534","A+":"#d1fae5;color:#065f46","A":"#dbeafe;color:#1e40af","B+":"#e0e7ff;color:#3730a3","B":"#fef3c7;color:#92400e","C":"#ffedd5;color:#9a3412","P":"#f3f4f6;color:#374151","F":"#fee2e2;color:#991b1b","Eligible (Cutoff Cleared)":"#dcfce7;color:#166534","Below Min CGPA":"#fee2e2;color:#991b1b"}
+    g_map = {"O":"#dcfce7;color:#166534","A+":"#d1fae5;color:#065f46","A":"#dbeafe;color:#1e40af","B+":"#e0e7ff;color:#3730a3","B":"#fef3c7;color:#92400e","C":"#ffedd5;color:#9a3412","P":"#f3f4f6;color:#374151","F":"#fee2e2;color:#991b1b"}
     return f"background-color:{g_map[val]};font-weight:bold" if val in g_map else ""
 
 def render_personal_dashboard(stu=None):
@@ -75,11 +75,11 @@ def render_personal_dashboard(stu=None):
         st.markdown(f"""
         <div class="profile-banner">
           <strong style="color:#312e81;font-size:1.15rem;">360° Student Dashboard: {stu['Student Name']}</strong><br>
-          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu['USN']} &nbsp;|&nbsp; Status: {stu['Status']} &nbsp;|&nbsp; Academics & Min CGPA Placement Eligibility</span>
+          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu['USN']} &nbsp;|&nbsp; Status: {stu['Status']} &nbsp;|&nbsp; Gradual Academic & Skill Upgrade Roadmap</span>
         </div>
         """, unsafe_allow_html=True)
 
-    tab_acad, tab_place = st.tabs(["Academics & Study Planner", "Min CGPA Cutoff & Placement Skills"])
+    tab_acad, tab_place = st.tabs(["Academics & Study Planner", "Skill & Academic Score Growth Plan"])
 
     with tab_acad:
         eval_mode = st.radio("Internals Completed:", ["Both Internals (1 & 2)", "Only 1st Internal"], horizontal=True)
@@ -141,40 +141,55 @@ def render_personal_dashboard(stu=None):
             st.dataframe(pd.DataFrame(plan), use_container_width=True)
 
     with tab_place:
-        st.subheader("Minimum CGPA Placement Eligibility & Skills")
+        st.subheader("How to Maintain & Upgrade Both Skills and Academic Score")
         uid_p = stu["USN"] if stu else "def_p"
-        stu_sgpa = st.session_state.get("calc_sgpa", float(stu["SGPA"]) if stu and "SGPA" in stu else 7.50)
+        stu_sgpa = st.session_state.get("calc_sgpa", float(stu["SGPA"]) if stu and "SGPA" in stu else 6.80)
 
         p1, p2 = st.columns(2)
-        min_cutoff = p1.number_input("Min Placement CGPA Cutoff", 5.0, 9.5, 7.0, 0.25, key=f"pcut_{uid_p}")
-        sems_done = p2.number_input("Semesters Completed", 1, 7, 5, 1, key=f"psem_{uid_p}")
-
-        rem_sems = max(1, 7 - sems_done)
-        cgpa_diff = round(stu_sgpa - min_cutoff, 2)
-        req_sgpa = round(((min_cutoff * (sems_done + rem_sems)) - (stu_sgpa * sems_done)) / rem_sems, 2)
+        min_cutoff = p1.number_input("Target Placement Cutoff", 5.5, 9.0, 7.0, 0.25, key=f"pcut_{uid_p}")
+        hrs_avail = p2.slider("Daily Self-Study + Skill Hours", 1, 6, 3, key=f"phrs_{uid_p}")
 
         all_skills = ["Python / Java / C++", "Data Structures & Algorithms", "Full-Stack Web (React/Node)", "SQL & DBMS", "Machine Learning / AI", "Cloud / Docker / Git", "System Design / OS"]
         init_sk = str(stu["Core Skills"]).split(", ") if stu and "Core Skills" in stu else ["Python / Java / C++", "SQL & DBMS"]
         init_sk = [s for s in init_sk if s in all_skills]
-        sel_skills = st.multiselect("Verified Skills (For Placement Drive):", all_skills, default=init_sk, key=f"psk_{uid_p}")
+        sel_skills = st.multiselect("Current Skills (Select What You Already Know):", all_skills, default=init_sk, key=f"psk_{uid_p}")
+
+        # Realistic Step-Up Goal instead of impossible jump
+        realistic_next_sgpa = round(min(9.5, stu_sgpa + 0.85), 2)
+        skill_readiness = int((len(sel_skills) / len(all_skills)) * 100)
+        acad_split = "55% Academics / 45% Skills" if stu_sgpa < min_cutoff else "35% Academics / 65% Skills"
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Score vs Min Cutoff", f"{stu_sgpa:.2f} / {min_cutoff:.2f}", f"{cgpa_diff:+.2f}")
-        c2.metric("Cutoff Status", "CLEARED" if stu_sgpa >= min_cutoff else "NOT MET")
-        c3.metric("Required SGPA Next Sem", "Maintained" if stu_sgpa >= min_cutoff else f"{min(10.0, max(0.0, req_sgpa)):.2f} / 10")
+        c1.metric("Realistic Next Goal", f"{realistic_next_sgpa:.2f} SGPA", f"+{realistic_next_sgpa - stu_sgpa:.2f} Step-Up")
+        c2.metric("Skill Readiness", f"{skill_readiness}%", f"{len(sel_skills)}/{len(all_skills)} Skills")
+        c3.metric("Recommended Split", acad_split.split("/")[0].strip())
 
         if stu_sgpa >= min_cutoff:
-            st.markdown(f'<div class="score-badge">Eligible for Campus Placements! Student has crossed the {min_cutoff:.2f} minimum CGPA cutoff (+{cgpa_diff:.2f} buffer).</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="score-badge">Academic Cutoff Maintained ({stu_sgpa:.2f} &ge; {min_cutoff:.2f})! Spend 65% of your {hrs_avail} hrs/day building projects, DSA & internships to stand out.</div>', unsafe_allow_html=True)
         else:
-            if req_sgpa <= 10.0:
-                st.error(f"Below Minimum CGPA Cutoff by {abs(cgpa_diff):.2f} points. Student must score an average SGPA of {req_sgpa:.2f} across the remaining {rem_sems} semester(s) before final year placements to cross {min_cutoff:.2f} CGPA.")
-            else:
-                st.error(f"Below Minimum CGPA Cutoff ({stu_sgpa:.2f} < {min_cutoff:.2f}). Focus on skill-based off-campus drives & companies with 6.0–6.5 CGPA criteria.")
+            st.markdown(f'<div class="score-badge">Don\'t stress about jumping to {min_cutoff:.2f} overnight! Focus on a realistic +0.85 step-up to {realistic_next_sgpa:.2f} SGPA while building strong skills that unlock skill-first companies (6.0+ criteria).</div>', unsafe_allow_html=True)
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
-        s_col1.markdown(f'<div class="sw-box sw-str"><strong>Placement Strengths</strong><br>Cutoff Criteria: {"Meets >= " + str(min_cutoff) + " Cutoff" if stu_sgpa >= min_cutoff else "Needs " + str(abs(cgpa_diff)) + " boost"}<br>Skills: {", ".join(sel_skills) if sel_skills else "Add core skills above"}</div>', unsafe_allow_html=True)
-        s_col2.markdown(f'<div class="sw-box sw-wk"><strong>Action Plan to Cross Cutoff & Get Placed</strong><br>1. Academic Target: {"Maintain >= " + str(min_cutoff) if stu_sgpa >= min_cutoff else "Target " + str(min(10.0, req_sgpa)) + " SGPA next sem"}<br>2. Add Missing Skills: {", ".join(missing_skills[:3]) if missing_skills else "All core skills ready!"}</div>', unsafe_allow_html=True)
+        s_col1.markdown(f"""
+        <div class="sw-box sw-str"><strong>1. How to Upgrade Academic Score Steadily</strong><br>
+        &bull; Protect CIE first: Aim for 36+/50 in Internals (easiest marks to secure).<br>
+        &bull; Zero backlogs rule: Clear weak subjects first before chasing 9+ SGPA.<br>
+        &bull; Study 3 past VTU papers per subject 3 weeks before SEE.</div>
+        """, unsafe_allow_html=True)
+        s_col2.markdown(f"""
+        <div class="sw-box sw-wk"><strong>2. How to Upgrade Skills Alongside College</strong><br>
+        &bull; Next Skill to Learn: <b>{missing_skills[0] if missing_skills else "System Design & Mock Interviews"}</b>.<br>
+        &bull; Daily Habit ({hrs_avail}h/day): 1 hr DSA/coding + 1 hr project build.<br>
+        &bull; Turn college lab mini-projects into GitHub portfolio repos.</div>
+        """, unsafe_allow_html=True)
+
+        routine = [
+            {"Focus Area": "Academic Maintenance (Protect CIE & Pass All)", "Daily Time": f"{round(hrs_avail * (0.55 if stu_sgpa < min_cutoff else 0.35), 1)} hrs/day", "Concrete Weekly Action": "Revise same-day lecture notes + solve 5 VTU numericals/week"},
+            {"Focus Area": "Core Coding & Problem Solving (DSA)", "Daily Time": f"{round(hrs_avail * 0.30, 1)} hrs/day", "Concrete Weekly Action": "Solve 5–7 LeetCode/GFG problems/week in Python/Java/C++"},
+            {"Focus Area": f"Skill Upgrade ({missing_skills[0] if missing_skills else 'Full-Stack / AI'})", "Daily Time": f"{round(hrs_avail * (0.15 if stu_sgpa < min_cutoff else 0.35), 1)} hrs/day", "Concrete Weekly Action": "Build 1 working feature/week & push to GitHub for resume proof"}
+        ]
+        st.dataframe(pd.DataFrame(routine), use_container_width=True)
 
 # Main Router: Personal Dashboard vs Batch & Faculty View
 if st.session_state.get("active_stu") is not None:
@@ -225,17 +240,17 @@ else:
             if "Core Skills" not in bdf.columns: bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
 
             bdf["Cutoff Gap"] = (bdf["SGPA"] - min_batch_cutoff).round(2)
-            bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min CGPA")
+            bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Skill + Score Focus")
             st.session_state["processed_bdf"] = bdf
 
             eligible_cnt = int((bdf["SGPA"] >= min_batch_cutoff).sum())
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Students", len(bdf))
-            k2.metric("Min CGPA Cutoff", f"{min_batch_cutoff:.2f}")
+            k2.metric("Min Cutoff", f"{min_batch_cutoff:.2f}")
             k3.metric("Crossed Cutoff", f"{eligible_cnt} / {len(bdf)}")
-            k4.metric("Below Cutoff", len(bdf) - eligible_cnt)
+            k4.metric("Skill + Score Focus", len(bdf) - eligible_cnt)
 
-            st.subheader("Individual Student Profiles (Min CGPA Cutoff Check)")
+            st.subheader("Individual Student Profiles")
             q = st.text_input("Search student name or ID", placeholder="e.g., Kavya or 1RN23CS105")
             filtered = bdf[bdf["Student Name"].str.contains(q, case=False, na=False) | bdf["USN"].str.contains(q, case=False, na=False)] if q else bdf
 
@@ -286,6 +301,6 @@ else:
         """, unsafe_allow_html=True)
 
         if pbdf is not None:
-            st.subheader("Priority Proctor Mentoring Queue (Students Needing Immediate Guidance)")
+            st.subheader("Priority Proctor Mentoring Queue")
             at_risk_df = pbdf[(pbdf["CIE (/50)"] < 22) | (pbdf["Attendance (%)"] < 75)][["USN", "Student Name", "Attendance (%)", "CIE (/50)", "SGPA", "Status"]].head(25)
             st.dataframe(at_risk_df, use_container_width=True)
