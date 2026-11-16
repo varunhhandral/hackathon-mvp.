@@ -124,7 +124,6 @@ def render_personal_dashboard(stu=None):
                 st.markdown(f'<div class="score-badge">CIE: {cie_val}/50 &nbsp;|&nbsp; Predicted SEE: {see_val}/50 &nbsp;|&nbsp; Predicted Final: {tot_val}/100</div>', unsafe_allow_html=True)
                 rows.append({"Subject": s_nm, "Credits": s_cr, "Attendance (%)": s_at, "CIE (/50)": cie_val, "Predicted SEE (/50)": see_val, "Predicted Total (/100)": tot_val})
 
-        # Compute live predicted SGPA from the 6 subjects so Tab 2 always stays synced
         live_df = pd.DataFrame(rows)
         live_res = [get_grade(t, c, s) for t, c, s in zip(live_df["Predicted Total (/100)"], live_df["CIE (/50)"], live_df["Predicted SEE (/50)"])]
         live_df["GP"] = [r[0] for r in live_res]
@@ -148,11 +147,11 @@ def render_personal_dashboard(stu=None):
 
     with tab_place:
         st.subheader("How to Maintain & Upgrade Both Skills and Academic Score")
-        uid_p = stu["USN"] if stu and "USN" in stu else "def_p"
+        uid_p = stu["USN"] if stu and "USN" in stu else "default"
         stu_sgpa = st.session_state.get(f"pred_sgpa_{uid_p}", float(stu["SGPA"]) if stu and "SGPA" in stu else 7.55)
 
         p1, p2 = st.columns(2)
-        min_cutoff = p1.number_input("Target Placement Cutoff", 5.5, 9.0, 7.25, 0.25, key=f"pcut_{uid_p}")
+        min_cutoff = p1.number_input("Target Placement Cutoff", 5.0, 9.5, 7.25, 0.25, key=f"pcut_{uid_p}")
         sems_completed = p2.number_input("Semesters Completed", 1, 7, 5, 1, key=f"psem_{uid_p}")
 
         all_skills = ["Python / Java / C++", "Data Structures & Algorithms", "Full-Stack Web (React/Node)", "SQL & DBMS", "Machine Learning / AI", "Cloud / Docker / Git", "System Design / OS"]
@@ -160,19 +159,27 @@ def render_personal_dashboard(stu=None):
         init_sk = [s for s in init_sk if s in all_skills]
         sel_skills = st.multiselect("Current Skills (Select What You Already Know):", all_skills, default=init_sk, key=f"psk_{uid_p}")
 
-        step_up = 0.85 if stu_sgpa < min_cutoff else 0.45
-        target_next_sgpa = round(min(9.8, stu_sgpa + step_up), 2)
+        # Dynamic Target Next Sem GPA based on Predicted SGPA, Target Cutoff & Semesters Completed
+        rem_sems = max(1, 8 - int(sems_completed))
+        req_avg_for_cutoff = ((min_cutoff * 8.0) - (stu_sgpa * int(sems_completed))) / rem_sems
+        if stu_sgpa >= min_cutoff:
+            target_next_sgpa = round(min(10.0, max(min_cutoff, stu_sgpa + 0.35)), 2)
+        else:
+            target_next_sgpa = round(min(10.0, max(5.5, req_avg_for_cutoff)), 2)
+
+        step_diff = target_next_sgpa - stu_sgpa
         skill_readiness = int((len(sel_skills) / len(all_skills)) * 100)
-        rem_sems = max(1, 7 - int(sems_completed))
 
         c1, c2 = st.columns(2)
-        c1.metric("Target Next Sem GPA", f"{target_next_sgpa:.2f} SGPA", f"{target_next_sgpa - stu_sgpa:+.2f} from Predicted ({stu_sgpa:.2f})")
+        c1.metric("Target Next Sem GPA", f"{target_next_sgpa:.2f} SGPA", f"{step_diff:+.2f} vs Predicted ({stu_sgpa:.2f})")
         c2.metric("Skill Readiness", f"{skill_readiness}%", f"{len(sel_skills)}/{len(all_skills)} Skills")
 
         if stu_sgpa >= min_cutoff:
-            st.markdown(f'<div class="score-badge">Predicted SGPA ({stu_sgpa:.2f}) is above the {min_cutoff:.2f} cutoff! Target {target_next_sgpa:.2f} SGPA next semester while building projects, DSA & internships.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="score-badge">Predicted SGPA ({stu_sgpa:.2f}) clears the {min_cutoff:.2f} cutoff! Target {target_next_sgpa:.2f} SGPA next semester ({step_diff:+.2f} buffer) while building projects, DSA & internships.</div>', unsafe_allow_html=True)
+        elif req_avg_for_cutoff > 10.0:
+            st.markdown(f'<div class="score-badge">With {stu_sgpa:.2f} SGPA across {int(sems_completed)} semesters, reaching an {min_cutoff:.2f} cumulative cutoff mathematically needs {req_avg_for_cutoff:.2f}/10—so aim for {target_next_sgpa:.2f} SGPA next sem while prioritizing skills for skill-first companies (6.0+ criteria).</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="score-badge">Based on Predicted SGPA ({stu_sgpa:.2f}) with {int(sems_completed)} semesters completed ({rem_sems} left), target {target_next_sgpa:.2f} SGPA next semester while upgrading skills for skill-first companies (6.0+ criteria).</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="score-badge">To raise your cumulative GPA from {stu_sgpa:.2f} to the {min_cutoff:.2f} placement cutoff over the remaining {rem_sems} semester(s), target {target_next_sgpa:.2f} SGPA next semester ({step_diff:+.2f} step-up).</div>', unsafe_allow_html=True)
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
