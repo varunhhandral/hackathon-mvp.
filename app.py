@@ -10,7 +10,7 @@ st.set_page_config(page_title="Student Performance Insights", layout="centered")
 st.title("Student Performance Insights")
 st.markdown("Predict student exam outcomes, identify at-risk learners early, and simulate study interventions.")
 
-# 1. Generate realistic student dataset (200 records)
+# 1. Generate realistic training dataset (200 records)
 np.random.seed(42)
 n_students = 200
 attendance = np.random.randint(50, 100, n_students)
@@ -79,18 +79,28 @@ st.divider()
 st.subheader("Batch Class Analysis (Upload CSV)")
 st.markdown("Upload a student roster CSV to predict scores for the whole class and flag at-risk students.")
 
+# Generate 1,000 realistic student records for instant CSV download
+np.random.seed(99)
+n_sample = 1000
+first_names = ["Aarav", "Diya", "Rohan", "Meera", "Kabir", "Ananya", "Vikram", "Priya", "Arjun", "Sneha",
+               "Rahul", "Kavya", "Aditya", "Neha", "Siddharth", "Pooja", "Karan", "Ishita", "Varun", "Riya"]
+last_names = ["Sharma", "Patel", "Reddy", "Nair", "Verma", "Gupta", "Iyer", "Singh", "Kumar", "Joshi",
+              "Das", "Mehta", "Bose", "Rao", "Pillai", "Choudhury", "Malhotra", "Bhat", "Menon", "Kulkarni"]
+
+student_names = [f"{np.random.choice(first_names)} {np.random.choice(last_names)} ({1001 + i})" for i in range(n_sample)]
+
 sample_df = pd.DataFrame({
-    "Student Name": ["Aarav", "Diya", "Rohan", "Meera", "Kabir"],
-    "Attendance (%)": [62, 94, 71, 88, 55],
-    "Weekly Study Hours": [5, 18, 9, 15, 3],
-    "Previous Exam Score": [54, 89, 65, 81, 46],
-    "Assignment Completion (%)": [60, 98, 75, 92, 50]
+    "Student Name": student_names,
+    "Attendance (%)": np.random.randint(48, 100, n_sample),
+    "Weekly Study Hours": np.random.randint(1, 26, n_sample),
+    "Previous Exam Score": np.random.randint(35, 99, n_sample),
+    "Assignment Completion (%)": np.random.randint(45, 100, n_sample)
 })
 
 st.download_button(
-    label="Download Sample Class CSV",
+    label="Download 1,000-Student Dataset (CSV)",
     data=sample_df.to_csv(index=False).encode("utf-8"),
-    file_name="sample_class_roster.csv",
+    file_name="1000_students_dataset.csv",
     mime="text/csv"
 )
 
@@ -121,3 +131,5 @@ if uploaded_file is not None:
             file_name="student_performance_report.csv",
             mime="text/csv"
         )
+    else:
+        st.error(f"CSV must include these exact columns: {', '.join(feature_cols)}")
