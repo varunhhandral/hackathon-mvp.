@@ -96,4 +96,50 @@ for i, (def_name, def_cred, def_att, def_i1, def_i2, def_a1, def_a2, def_last) i
         s_cred = s_col2.number_input("Credits", min_value=1, max_value=6, value=def_cred, key=f"cred_{i}")
 
         r1_c1, r1_c2 = st.columns(2)
-        s_att = r1_
+        s_att = r1_c1.slider("Attendance (%)", 40, 100, def_att, key=f"att_{i}")
+        s_last = r1_c2.number_input("Last Sem Exam (out of 100)", 0, 100, def_last, key=f"last_{i}")
+
+        st.caption("Continuous Internal Evaluation (CIE - Total 50 Marks)")
+        r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
+        s_int1 = r2_c1.number_input("Internal 1 (/50)", 0, 50, def_i1, key=f"int1_{i}")
+        s_int2 = r2_c2.number_input("Internal 2 (/50)", 0, 50, def_i2, key=f"int2_{i}")
+        s_asg1 = r2_c3.number_input("Assign 1 (/5)", 0, 5, def_a1, key=f"asg1_{i}")
+        s_asg2 = r2_c4.number_input("Assign 2 (/5)", 0, 5, def_a2, key=f"asg2_{i}")
+
+        int_scaled = round(((s_int1 + s_int2) / 100.0) * 40.0, 1)
+        asg_total = s_asg1 + s_asg2
+        cie_calc = round(int_scaled + asg_total, 1)
+        st.info(f"Calculated CIE: {cie_calc} / 50 (Internals: {int_scaled}/40 + Assignments: {asg_total}/10)")
+
+        subject_inputs.append({
+            "Subject": s_name,
+            "Credits": s_cred,
+            "Attendance (%)": s_att,
+            "CIE Marks (out of 50)": cie_calc,
+            "Last Sem Exam (out of 100)": s_last
+        })
+
+if st.button("Predict SEE, Final Total (100), SGPA & CGPA"):
+    sub_df = pd.DataFrame(subject_inputs)
+    sub_df["Predicted SEE (/50)"] = model.predict(sub_df[feature_cols]).round(1)
+    sub_df["Final Total (/100)"] = (sub_df["CIE Marks (out of 50)"] + sub_df["Predicted SEE (/50)"]).round(1)
+
+    gpa_info = [
+        get_gpa_and_grade(tot, cie, see)
+        for tot, cie, see in zip(
+            sub_df["Final Total (/100)"],
+            sub_df["CIE Marks (out of 50)"],
+            sub_df["Predicted SEE (/50)"]
+        )
+    ]
+    sub_df["Grade Point"] = [g[0] for g in gpa_info]
+    sub_df["Grade"] = [g[1] for g in gpa_info]
+    sub_df["Credit Points"] = sub_df["Credits"] * sub_df["Grade Point"]
+
+    total_credits = sub_df["Credits"].sum()
+    sem_sgpa = sub_df["Credit Points"].sum() / total_credits
+    new_cgpa = ((current_cgpa * completed_sems) + sem_sgpa) / (completed_sems + 1)
+    cgpa_delta = new_cgpa - current_cgpa
+    avg_total = sub_df["Final Total (/100)"].mean()
+
+    m1, m2, m3 = st
