@@ -27,7 +27,6 @@ def get_gpa_and_grade(total_score, cie_marks, see_marks):
     else:
         return 4.0, "P"
 
-# 1. Generate realistic RNSIT/VTU training dataset
 np.random.seed(42)
 n_students = 300
 attendance = np.random.randint(55, 100, n_students)
@@ -46,7 +45,6 @@ df = pd.DataFrame({
     "SEE Marks (out of 50)": see_score
 })
 
-# 2. Train Model
 feature_cols = ["Attendance (%)", "CIE Marks (out of 50)", "Last Sem Exam (out of 100)"]
 X = df[feature_cols]
 y = df["SEE Marks (out of 50)"]
@@ -56,7 +54,6 @@ model = RandomForestRegressor(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 preds = model.predict(X_test)
 
-# 3. Display Model Metrics
 st.subheader("Model Performance & Key Drivers (SEE Prediction)")
 col1, col2 = st.columns(2)
 col1.metric("SEE Model MAE (Error)", f"{mean_absolute_error(y_test, preds):.2f} / 50 Marks")
@@ -71,7 +68,6 @@ st.bar_chart(importance_df.set_index("Factor"))
 
 st.divider()
 
-# 4. Interactive 6-Subject RNSIT/VTU Simulator
 st.subheader("Simulate 6-Subject Semester Outcome (RNSIT Scheme)")
 st.markdown("Enter **2 Internals (out of 50)**, **2 Assignments (out of 5)**, **Attendance (%)**, and **Last Sem Exam (out of 100)** for all 6 subjects.")
 
@@ -109,17 +105,4 @@ for i, (def_name, def_cred, def_att, def_i1, def_i2, def_a1, def_a2, def_last) i
         int_scaled = round(((s_int1 + s_int2) / 100.0) * 40.0, 1)
         asg_total = s_asg1 + s_asg2
         cie_calc = round(int_scaled + asg_total, 1)
-        st.info(f"Calculated CIE: {cie_calc} / 50 (Internals: {int_scaled}/40 + Assignments: {asg_total}/10)")
-
-        subject_inputs.append({
-            "Subject": s_name,
-            "Credits": s_cred,
-            "Attendance (%)": s_att,
-            "CIE Marks (out of 50)": cie_calc,
-            "Last Sem Exam (out of 100)": s_last
-        })
-
-if st.button("Predict SEE, Final Total (100), SGPA & CGPA"):
-    sub_df = pd.DataFrame(subject_inputs)
-    sub_df["Predicted SEE (/50)"] = model.predict(sub_df[feature_cols]).round(1)
-    sub_df["Final Total (/100)"] = (sub_df["CIE Marks (out of 50)"] + sub_df["Predicted SEE (/50)"]).round(
+        st.info(f"
