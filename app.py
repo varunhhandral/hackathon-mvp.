@@ -3,23 +3,24 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Zomato Data Cleaning & Freelance Utility", layout="wide"
+    page_title="Professional Office Data Entry & Cleaning Utility",
+    layout="wide",
 )
 
-st.title("⚡ One-Click Zomato Data Cleaning & Area-Wise Summary Utility")
+st.title("💼 Professional Office Data Entry & Cleaning Assistant")
 st.markdown(
-    "Upload any raw, messy Zomato order report. This tool instantly standardizes"
-    " text, calculates total revenue per order, generates area-wise summary"
-    " tables, and gives you a clean Excel file ready to send to clients!"
+    "Upload any raw office report or client dataset. This app automatically"
+    " standardizes text, formats dates, cleans currency/numbers, computes"
+    " attendance-based salaries, applies performance rules, removes duplicates,"
+    " and generates a client-ready multi-sheet Excel report!"
 )
 
 # 1. File Uploader
 uploaded_file = st.file_uploader(
-    "Upload Raw Client Report (CSV or Excel)", type=["csv", "xlsx"]
+    "Upload Raw Dataset (CSV or Excel)", type=["csv", "xlsx"]
 )
 
 if uploaded_file is not None:
-  # Read file depending on extension
   try:
     if uploaded_file.name.endswith(".csv"):
       df = pd.read_csv(uploaded_file)
@@ -32,116 +33,140 @@ if uploaded_file is not None:
   st.subheader("📋 Raw Data Preview")
   st.dataframe(df.head(5), use_container_width=True)
 
-  # 2. Automated Cleaning & Calculation Button
-  if st.button("🚀 Process, Clean & Generate Client Deliverable"):
-    with st.spinner("Cleaning columns, fixing text, and calculating revenue..."):
+  # 2. Automated Office Formatting & Processing Button
+  if st.button("🚀 Run Professional Office Formatting & Calculations"):
+    with st.spinner(
+        "Standardizing text, formatting dates, calculating salaries, and"
+        " evaluating performance..."
+    ):
       cleaned_df = df.copy()
 
-      # Normalize text columns if they exist
+      # A. Remove Duplicates automatically (as covered in professional workflow)
+      cleaned_df = cleaned_df.drop_duplicates()
+
+      # B. Standardize Text Casing & Whitespace
       text_cols = [
-          "Restaurant Name",
-          "Customer Name",
-          "Area",
-          "Item",
-          "Payment Method",
-          "Order Status",
+          col
+          for col in [
+              "Employee Name",
+              "Department",
+              "Area",
+              "Restaurant Name",
+              "Customer Name",
+              "Item",
+              "Payment Method",
+              "Order Status",
+          ]
+          if col in cleaned_df.columns
       ]
       for col in text_cols:
+        cleaned_df[col] = cleaned_df[col].astype(str).str.strip().str.title()
+
+      # C. Format Joining / Order Dates cleanly
+      date_cols = [
+          col for col in ["Joining Date", "Order Date"] if col in cleaned_df.columns
+      ]
+      for col in date_cols:
+        cleaned_df[col] = pd.to_datetime(
+            cleaned_df[col], errors="coerce"
+        ).dt.strftime("%B %d, %Y")
+
+      # D. Clean Numeric & Currency Columns (Remove symbols like ₹, Rs., commas)
+      for col in ["Basic Salary", "Salary", "Item Price", "Delivery Fee"]:
         if col in cleaned_df.columns:
           cleaned_df[col] = (
-              cleaned_df[col].astype(str).str.strip().str.title()
-          )
-
-      # Clean numeric columns (Quantity, Item Price, Delivery Fee)
-      if "Quantity" in cleaned_df.columns:
-        # Handle word quantities like 'two' or 'five' if present
-        word_to_num = {
-            "one": 1,
-            "two": 2,
-            "three": 3,
-            "four": 4,
-            "five": 5,
-            "six": 6,
-        }
-        cleaned_df["Quantity"] = cleaned_df["Quantity"].replace(word_to_num)
-        cleaned_df["Quantity"] = (
-            pd.to_numeric(cleaned_df["Quantity"], errors="coerce").fillna(1).astype(int)
-        )
-
-      for price_col in ["Item Price", "Delivery Fee"]:
-        if price_col in cleaned_df.columns:
-          cleaned_df[price_col] = (
-              cleaned_df[price_col]
+              cleaned_df[col]
               .astype(str)
               .str.replace("Rs.", "", case=False, regex=False)
               .str.replace("₹", "", regex=False)
+              .str.replace(",", "", regex=False)
               .str.strip()
           )
-          cleaned_df[price_col] = pd.to_numeric(
-              cleaned_df[price_col], errors="coerce"
+          cleaned_df[col] = pd.to_numeric(
+              cleaned_df[col], errors="coerce"
           ).fillna(0)
 
-      # Calculate Total Revenue per order = (Quantity * Item Price) + Delivery Fee
-      if (
-          "Quantity" in cleaned_df.columns
-          and "Item Price" in cleaned_df.columns
-          and "Delivery Fee" in cleaned_df.columns
-      ):
-        cleaned_df["Total_Revenue"] = (
-            cleaned_df["Quantity"] * cleaned_df["Item Price"]
-        ) + cleaned_df["Delivery Fee"]
-      else:
-        cleaned_df["Total_Revenue"] = 0
+      # E. Clean Attendance & Append ' Days' Suffix for presentation
+      if "Attendance" in cleaned_df.columns:
+        cleaned_df["Attendance"] = (
+            pd.to_numeric(cleaned_df["Attendance"], errors="coerce")
+            .fillna(25)
+            .astype(int)
+        )
 
-      # Create Area-wise Summary Table
-      if "Area" in cleaned_df.columns:
-        area_summary = (
-            cleaned_df.groupby("Area")
+      # F. Salary Calculation Proportional to Attendance (Basic Salary / 30 * Attendance)
+      if "Basic Salary" in cleaned_df.columns and "Attendance" in cleaned_df.columns:
+        cleaned_df["Calculated Salary"] = (
+            (cleaned_df["Basic Salary"] / 30.0) * cleaned_df["Attendance"]
+        ).round(2)
+
+      # G. Performance Condition (IF Attendance >= 25 -> Good, else Bad)
+      if "Attendance" in cleaned_df.columns:
+        cleaned_df["Performance"] = cleaned_df["Attendance"].apply(
+            lambda x: "Good" if x >= 25 else "Bad"
+        )
+
+      # H. Generate Summary Report (Area-wise or Department-wise totals)
+      group_col = (
+          "Area"
+          if "Area" in cleaned_df.columns
+          else ("Department" if "Department" in cleaned_df.columns else None)
+      )
+      if group_col and "Calculated Salary" in cleaned_df.columns:
+        summary_df = (
+            cleaned_df.groupby(group_col)
             .agg(
-                Total_Orders=("Order ID", "count"),
-                Total_Revenue=("Total_Revenue", "sum"),
+                Total_Records=(cleaned_df.columns[0], "count"),
+                Total_Payout_Salary=("Calculated Salary", "sum"),
             )
             .reset_index()
         )
-      else:
-        area_summary = pd.DataFrame(
-            columns=["Area", "Total_Orders", "Total_Revenue"]
+      elif group_col:
+        summary_df = (
+            cleaned_df.groupby(group_col)
+            .agg(Total_Records=(cleaned_df.columns[0], "count"))
+            .reset_index()
         )
+      else:
+        summary_df = pd.DataFrame(columns=["Summary", "Total_Count"])
 
-      # Store in session state for downloading
-      st.session_state["cleaned_df"] = cleaned_df
-      st.session_state["area_summary"] = area_summary
+      # Store in session state
+      st.session_state["office_cleaned_df"] = cleaned_df
+      st.session_state["office_summary_df"] = summary_df
 
-    st.success("Data cleaned and summaries generated successfully!")
+    st.success(
+        "Professional formatting, duplicate removal, salary calculations, and"
+        " performance flags applied successfully!"
+    )
 
-  # 3. Display Results if processed
-  if "cleaned_df" in st.session_state:
+  # 3. Display Results & One-Click Download
+  if "office_cleaned_df" in st.session_state:
     st.markdown("---")
-    st.subheader("✨ Cleaned Zomato Report Preview")
-    st.dataframe(st.session_state["cleaned_df"].head(10), use_container_width=True)
+    st.subheader("✨ Cleaned & Formatted Data Preview")
+    st.dataframe(
+        st.session_state["office_cleaned_df"].head(10), use_container_width=True
+    )
 
-    st.subheader("📊 Area-Wise Summary Deliverable")
-    st.dataframe(st.session_state["area_summary"], use_container_width=True)
+    st.subheader("📊 Summary Deliverable Report")
+    st.dataframe(st.session_state["office_summary_df"], use_container_width=True)
 
-    # 4. One-Click Multi-Sheet Excel Export
+    # 4. Multi-Sheet Excel Export
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-      st.session_state["cleaned_df"].to_excel(
-          writer, sheet_name="Cleaned_Zomato_Data", index=False
+      st.session_state["office_cleaned_df"].to_excel(
+          writer, sheet_name="Cleaned_Office_Data", index=False
       )
-      st.session_state["area_summary"].to_excel(
-          writer, sheet_name="Area_Wise_Summary", index=False
+      st.session_state["office_summary_df"].to_excel(
+          writer, sheet_name="Summary_Report", index=False
       )
     excel_data = output.getvalue()
 
     st.download_button(
-        label="📥 Download Complete Excel Report for Client",
+        label="📥 Download Complete Multi-Sheet Excel Report for Client",
         data=excel_data,
-        file_name="TastyBites_Zomato_Cleaned_Report.xlsx",
+        file_name="Professional_Office_Data_Report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 else:
-  st.info(
-      "👈 Upload your client's messy CSV or Excel file above to get started."
-      )
+  st.info("👈 Upload your messy client CSV or Excel file above to begin.")
     
