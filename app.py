@@ -38,28 +38,19 @@ div.stDownloadButton > button {background: linear-gradient(90deg, #0d9488, #0284
 </style>
 <div class="hero">
   <h1>Student Performance & Placement Insights</h1>
-  <p>Holistic RNSIT Analytics: Academics (CIE + SEE), Technical Skills & Final Year Placement Probability</p>
-  <span class="pill">Academics + Skills</span>
-  <span class="pill">Placement Probability (%)</span>
-  <span class="pill">AI Study & Career Roadmap</span>
+  <p>RNSIT Academic Predictor, Minimum CGPA Cutoff Tracker & Skills Readiness Co-Pilot</p>
+  <span class="pill">CIE (50) + Predicted SEE (50)</span>
+  <span class="pill">Min CGPA Cutoff Tracker</span>
+  <span class="pill">Skills & Placement Eligibility</span>
 </div>
 """, unsafe_allow_html=True)
 
-# Train Academic SEE Model & Placement Probability Model
 np.random.seed(42)
 n_tr = 400
 tr_att = np.random.randint(50, 100, n_tr)
 tr_cie = np.random.uniform(15, 50, n_tr)
 tr_see = np.clip(0.68 * tr_cie + 0.14 * tr_att + np.random.normal(0, 2.0, n_tr), 10, 50)
 see_model = RandomForestRegressor(n_estimators=80, random_state=42).fit(np.column_stack([tr_att, tr_cie]), tr_see)
-
-p_cgpa = np.random.uniform(5.2, 9.8, n_tr)
-p_dsa = np.random.randint(25, 100, n_tr)
-p_proj = np.random.randint(0, 6, n_tr)
-p_intern = np.random.randint(0, 4, n_tr)
-p_apt = np.random.randint(35, 100, n_tr)
-p_prob = np.clip(p_cgpa * 4.2 + p_dsa * 0.28 + p_proj * 3.5 + p_intern * 7.5 + p_apt * 0.16 - 14 + np.random.normal(0, 2.5, n_tr), 8, 99.5)
-place_model = RandomForestRegressor(n_estimators=80, random_state=42).fit(np.column_stack([p_cgpa, p_dsa, p_proj, p_intern, p_apt]), p_prob)
 
 def get_grade(tot, cie, see):
     if cie < 20 or see < 18 or tot < 40: return 0.0, "F"
@@ -72,7 +63,7 @@ def get_grade(tot, cie, see):
     return 4.0, "P"
 
 def style_grade(val):
-    g_map = {"O":"#dcfce7;color:#166534","A+":"#d1fae5;color:#065f46","A":"#dbeafe;color:#1e40af","B+":"#e0e7ff;color:#3730a3","B":"#fef3c7;color:#92400e","C":"#ffedd5;color:#9a3412","P":"#f3f4f6;color:#374151","F":"#fee2e2;color:#991b1b","Placement Ready":"#dcfce7;color:#166534","Needs Upskilling":"#fee2e2;color:#991b1b"}
+    g_map = {"O":"#dcfce7;color:#166534","A+":"#d1fae5;color:#065f46","A":"#dbeafe;color:#1e40af","B+":"#e0e7ff;color:#3730a3","B":"#fef3c7;color:#92400e","C":"#ffedd5;color:#9a3412","P":"#f3f4f6;color:#374151","F":"#fee2e2;color:#991b1b","Eligible (Cutoff Cleared)":"#dcfce7;color:#166534","Below Min CGPA":"#fee2e2;color:#991b1b"}
     return f"background-color:{g_map[val]};font-weight:bold" if val in g_map else ""
 
 def render_personal_dashboard(stu=None):
@@ -83,11 +74,11 @@ def render_personal_dashboard(stu=None):
         st.markdown(f"""
         <div class="profile-banner">
           <strong style="color:#312e81;font-size:1.15rem;">360° Student Dashboard: {stu['Student Name']}</strong><br>
-          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu['USN']} &nbsp;|&nbsp; Placement Prob: {stu['Placement Prob (%)']}% &nbsp;|&nbsp; Academics + Technical Skills</span>
+          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu['USN']} &nbsp;|&nbsp; Status: {stu['Status']} &nbsp;|&nbsp; Academics & Min CGPA Placement Eligibility</span>
         </div>
         """, unsafe_allow_html=True)
 
-    tab_acad, tab_place = st.tabs(["Academics & Study Planner", "Skills & Final Year Placement Predictor"])
+    tab_acad, tab_place = st.tabs(["Academics & Study Planner", "Min CGPA Cutoff & Placement Skills"])
 
     with tab_acad:
         g1, g2, g3 = st.columns([1, 1, 1.3])
@@ -146,6 +137,7 @@ def render_personal_dashboard(stu=None):
             sgpa = (sdf["Credits"] * sdf["GP"]).sum() / sdf["Credits"].sum()
             ncgpa = ((curr_cgpa * comp_sems) + sgpa) / (comp_sems + 1)
             st.session_state["proj_cgpa"] = round(ncgpa, 2)
+            st.session_state["comp_sems"] = int(comp_sems)
             m1, m2, m3 = st.columns(3)
             m1.metric("Predicted Avg", f"{sdf['Predicted Total (/100)'].mean():.1f} / 100")
             m2.metric("Predicted SGPA", f"{sgpa:.2f} / 10")
@@ -160,65 +152,50 @@ def render_personal_dashboard(stu=None):
             st.dataframe(pd.DataFrame(plan), use_container_width=True)
 
     with tab_place:
-        st.subheader("Technical Skills & Final Year Placement Readiness")
+        st.subheader("Minimum CGPA Placement Eligibility & Skills")
         uid_p = stu["USN"] if stu else "def_p"
-        default_cgpa = st.session_state.get("proj_cgpa", float(stu["Projected CGPA"]) if stu and "Projected CGPA" in stu else 7.75)
-        default_dsa = int(stu["DSA Score (/100)"]) if stu and "DSA Score (/100)" in stu else 68
-        default_proj = int(stu["Projects"]) if stu and "Projects" in stu else 2
-        default_int = int(stu["Internships"]) if stu and "Internships" in stu else 1
-        default_apt = int(stu["Aptitude (/100)"]) if stu and "Aptitude (/100)" in stu else 72
+        default_cgpa = st.session_state.get("proj_cgpa", float(stu["Projected CGPA"]) if stu and "Projected CGPA" in stu else 6.85)
+        default_sems = st.session_state.get("comp_sems", 5)
 
-        p1, p2 = st.columns(2)
-        pl_cgpa = p1.number_input("Final Year CGPA (/10)", 0.0, 10.0, float(default_cgpa), 0.05, key=f"pcg_{uid_p}")
-        pl_dsa = p2.slider("DSA & Coding Proficiency (/100)", 0, 100, default_dsa, key=f"pdsa_{uid_p}")
+        p1, p2, p3 = st.columns(3)
+        pl_cgpa = p1.number_input("Current / Projected CGPA", 0.0, 10.0, float(default_cgpa), 0.05, key=f"pcg_{uid_p}")
+        min_cutoff = p2.number_input("Min Placement CGPA Cutoff", 5.0, 9.5, 7.0, 0.25, key=f"pcut_{uid_p}")
+        sems_done = p3.number_input("Semesters Completed", 1, 7, int(default_sems), 1, key=f"psem_{uid_p}")
 
-        p3, p4, p5 = st.columns(3)
-        pl_proj = p3.number_input("Real-World Projects", 0, 10, default_proj, key=f"ppr_{uid_p}")
-        pl_intern = p4.number_input("Internships Completed", 0, 5, default_int, key=f"pin_{uid_p}")
-        pl_apt = p5.slider("Aptitude & Comm. (/100)", 0, 100, default_apt, key=f"pap_{uid_p}")
+        rem_sems = max(1, 7 - sems_done)
+        cgpa_diff = round(pl_cgpa - min_cutoff, 2)
+        req_sgpa = round(((min_cutoff * (sems_done + rem_sems)) - (pl_cgpa * sems_done)) / rem_sems, 2)
 
         all_skills = ["Python / Java / C++", "Data Structures & Algorithms", "Full-Stack Web (React/Node)", "SQL & DBMS", "Machine Learning / AI", "Cloud / Docker / Git", "System Design / OS"]
-        init_sk = str(stu["Core Skills"]).split(", ") if stu and "Core Skills" in stu else ["Python / Java / C++", "SQL & DBMS", "Full-Stack Web (React/Node)"]
+        init_sk = str(stu["Core Skills"]).split(", ") if stu and "Core Skills" in stu else ["Python / Java / C++", "SQL & DBMS"]
         init_sk = [s for s in init_sk if s in all_skills]
-        sel_skills = st.multiselect("Verified Technical Skills:", all_skills, default=init_sk, key=f"psk_{uid_p}")
+        sel_skills = st.multiselect("Verified Skills (For Placement Drive):", all_skills, default=init_sk, key=f"psk_{uid_p}")
 
-        raw_prob = float(place_model.predict([[pl_cgpa, pl_dsa, pl_proj, pl_intern, pl_apt]])[0])
-        skill_bonus = len(sel_skills) * 1.4
-        final_prob = round(min(99.2, max(10.0, raw_prob + skill_bonus - 4.0)), 1)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("CGPA vs Min Cutoff", f"{pl_cgpa:.2f} / {min_cutoff:.2f}", f"{cgpa_diff:+.2f}")
+        c2.metric("Placement Cutoff Status", "CLEARED" if pl_cgpa >= min_cutoff else "NOT CLEARED")
+        c3.metric("Required SGPA Next Sem", "Maintained" if pl_cgpa >= min_cutoff else f"{min(10.0, max(0.0, req_sgpa)):.2f} / 10")
 
-        if pl_cgpa >= 8.0 and pl_dsa >= 75 and len(sel_skills) >= 4 and final_prob >= 80:
-            tier = "Tier-1 Product / Dream (10-24 LPA)"
-        elif pl_cgpa >= 7.0 and final_prob >= 65:
-            tier = "Tier-2 Tech / FinTech (6-10 LPA)"
-        elif pl_cgpa >= 6.0 and final_prob >= 45:
-            tier = "IT Services & Consulting (4-6 LPA)"
+        if pl_cgpa >= min_cutoff:
+            st.markdown(f'<div class="score-badge">Eligible for Campus Placements! Student has crossed the {min_cutoff:.2f} minimum CGPA cutoff (+{cgpa_diff:.2f} buffer).</div>', unsafe_allow_html=True)
         else:
-            tier = "Needs Pre-Placement Bootcamps"
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Placement Probability", f"{final_prob}%")
-        m2.metric("Skill Stack Score", f"{len(sel_skills)} / {len(all_skills)}")
-        m3.metric("Target Package Tier", tier.split("(")[0].strip())
-
-        st.markdown(f'<div class="score-badge">Predicted Final Year Placement Outcome: {final_prob}% Probability &nbsp;|&nbsp; Best Fit: {tier}</div>', unsafe_allow_html=True)
+            if req_sgpa <= 10.0:
+                st.error(f"Below Minimum CGPA Cutoff by {abs(cgpa_diff):.2f} points. Student must score an average SGPA of {req_sgpa:.2f} across the remaining {rem_sems} semester(s) before final year placements to cross {min_cutoff:.2f} CGPA.")
+            else:
+                st.error(f"Below Minimum CGPA Cutoff ({pl_cgpa:.2f} < {min_cutoff:.2f}). Even 10.0 SGPA in remaining semesters reaches {round((pl_cgpa*sems_done + 10*rem_sems)/(sems_done+rem_sems), 2)} CGPA — focus on skill-based off-campus drives & companies with 6.0–6.5 CGPA criteria.")
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
-        s_col1.markdown(f'<div class="sw-box sw-str"><strong>Placement Strengths</strong><br>Skills: {", ".join(sel_skills) if sel_skills else "None selected"}<br>CGPA Cutoff: {"Cleared (>=7.0)" if pl_cgpa >= 7.0 else "Below 7.0 (Restricts Dream Companies)"}</div>', unsafe_allow_html=True)
-        s_col2.markdown(f'<div class="sw-box sw-wk"><strong>Skill Gaps to Close Before Placements</strong><br>Learn: {", ".join(missing_skills[:3]) if missing_skills else "All core skills covered!"}<br>Target: {"Solve 150+ LeetCode problems" if pl_dsa < 75 else "System Design & Mock Interviews"}</div>', unsafe_allow_html=True)
-
-        roadmap = [
-            {"Milestone": "Month 1: Coding & DSA", "Action Item": f"Raise DSA score from {pl_dsa}/100 to 80+ (Arrays, Trees, DP, Graphs)"},
-            {"Milestone": "Month 2: Skill & Project Build", "Action Item": f"Build 1 end-to-end project using {missing_skills[0] if missing_skills else 'Cloud & System Design'}"},
-            {"Milestone": "Month 3: Internship & Aptitude", "Action Item": f"{'Secure 1 summer internship + ' if pl_intern == 0 else ''}Practice quantitative aptitude & HR mock interviews"}
-        ]
-        st.dataframe(pd.DataFrame(roadmap), use_container_width=True)
+        s_col1.markdown(f'<div class="sw-box sw-str"><strong>Placement Strengths</strong><br>CGPA Criteria: {"Meets >= " + str(min_cutoff) + " Cutoff" if pl_cgpa >= min_cutoff else "Needs " + str(abs(cgpa_diff)) + " CGPA boost"}<br>Skills: {", ".join(sel_skills) if sel_skills else "Add core skills above"}</div>', unsafe_allow_html=True)
+        s_col2.markdown(f'<div class="sw-box sw-wk"><strong>Action Plan to Cross Cutoff & Get Placed</strong><br>1. Academic Target: {"Maintain >= " + str(min_cutoff) + " CGPA" if pl_cgpa >= min_cutoff else "Target " + str(min(10.0, req_sgpa)) + " SGPA next sem"}<br>2. Add Missing Skills: {", ".join(missing_skills[:3]) if missing_skills else "All core skills ready!"}</div>', unsafe_allow_html=True)
 
 # Main Router: Personal Dashboard vs 1,000-Student Profiles
 if st.session_state.get("active_stu") is not None:
     render_personal_dashboard(st.session_state["active_stu"])
 else:
     st.subheader("Batch Class Analysis (Upload CSV)")
+    min_batch_cutoff = st.slider("Set Minimum Placement CGPA Cutoff for Class:", 5.5, 8.5, 7.0, 0.25)
+
     np.random.seed(99)
     ns = 1000
     fn = ["Nandini", "Kavya", "Abhishek", "Aarav", "Diya", "Rohan", "Meera", "Kabir", "Ananya", "Vikram"]
@@ -237,14 +214,10 @@ else:
         "Internal 2 (/50)": np.random.randint(20, 50, ns),
         "Assignment 1 (/5)": np.random.randint(3, 6, ns),
         "Assignment 2 (/5)": np.random.randint(3, 6, ns),
-        "Previous CGPA": np.round(np.random.uniform(6.0, 9.6, ns), 2),
-        "DSA Score (/100)": np.random.randint(35, 98, ns),
-        "Projects": np.random.randint(1, 5, ns),
-        "Internships": np.random.randint(0, 3, ns),
-        "Aptitude (/100)": np.random.randint(45, 96, ns),
+        "Previous CGPA": np.round(np.random.uniform(5.8, 9.6, ns), 2),
         "Core Skills": [np.random.choice(skill_pools) for _ in range(ns)]
     })
-    st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students_placement.csv", "text/csv")
+    st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students_cutoff.csv", "text/csv")
 
     up = st.file_uploader("Upload CSV", type=["csv"])
     if up is not None:
@@ -264,39 +237,34 @@ else:
         bdf["SGPA"] = [r[0] for r in bres]
         base_c = bdf["Previous CGPA"] if "Previous CGPA" in bdf.columns else 7.5
         bdf["Projected CGPA"] = (((base_c * 3) + bdf["SGPA"]) / 4).round(2)
-
-        if "DSA Score (/100)" not in bdf.columns: bdf["DSA Score (/100)"] = np.random.randint(45, 90, len(bdf))
-        if "Projects" not in bdf.columns: bdf["Projects"] = np.random.randint(1, 4, len(bdf))
-        if "Internships" not in bdf.columns: bdf["Internships"] = np.random.randint(0, 3, len(bdf))
-        if "Aptitude (/100)" not in bdf.columns: bdf["Aptitude (/100)"] = np.random.randint(50, 92, len(bdf))
         if "Core Skills" not in bdf.columns: bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
 
-        raw_p = place_model.predict(bdf[["Projected CGPA", "DSA Score (/100)", "Projects", "Internships", "Aptitude (/100)"]].values)
-        bdf["Placement Prob (%)"] = np.clip(raw_p, 12.0, 99.0).round(1)
-        bdf["Status"] = np.where((bdf["Placement Prob (%)"] >= 65) & (bdf["Projected CGPA"] >= 6.5), "Placement Ready", "Needs Upskilling")
+        bdf["Cutoff Gap"] = (bdf["Projected CGPA"] - min_batch_cutoff).round(2)
+        bdf["Status"] = np.where(bdf["Projected CGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min CGPA")
 
+        eligible_cnt = int((bdf["Projected CGPA"] >= min_batch_cutoff).sum())
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Students", len(bdf))
-        k2.metric("Avg CGPA", f"{bdf['Projected CGPA'].mean():.2f}")
-        k3.metric("Avg Placement Prob", f"{bdf['Placement Prob (%)'].mean():.1f}%")
-        k4.metric("Placement Ready", int((bdf["Status"] == "Placement Ready").sum()))
+        k2.metric("Min CGPA Cutoff", f"{min_batch_cutoff:.2f}")
+        k3.metric("Crossed Cutoff", f"{eligible_cnt} / {len(bdf)}")
+        k4.metric("Below Cutoff", len(bdf) - eligible_cnt)
 
-        st.subheader("Individual Student Profiles (Academics + Skills)")
+        st.subheader("Individual Student Profiles (Min CGPA Cutoff Check)")
         q = st.text_input("Search student name or ID", placeholder="e.g., Kavya or 1RN23CS105")
         filtered = bdf[bdf["Student Name"].str.contains(q, case=False, na=False) | bdf["USN"].str.contains(q, case=False, na=False)] if q else bdf
 
         grid_cols = st.columns(3)
         for idx, (_, r) in enumerate(filtered.head(9).iterrows()):
             initials = "".join([w[0] for w in str(r["Student Name"]).split()[:2]]).upper()
-            tag_cls = "tag-ok" if r["Status"] == "Placement Ready" else "tag-risk"
+            tag_cls = "tag-ok" if r["Projected CGPA"] >= min_batch_cutoff else "tag-risk"
             with grid_cols[idx % 3]:
                 st.markdown(f"""
                 <div class="stu-card">
                   <div class="stu-avatar">{initials}</div>
                   <p class="stu-name">{r['Student Name']}</p>
-                  <p class="stu-id">ID: {r['USN']} | CGPA: {r['Projected CGPA']}</p>
-                  <p class="stu-stat">DSA: {r['DSA Score (/100)']}/100 | Internships: {r['Internships']}</p>
-                  <p class="stu-stat">Placement Prob: {r['Placement Prob (%)']}%</p>
+                  <p class="stu-id">ID: {r['USN']}</p>
+                  <p class="stu-stat">Projected CGPA: {r['Projected CGPA']} / 10</p>
+                  <p class="stu-stat">Cutoff ({min_batch_cutoff}): {r['Cutoff Gap']:+.2f}</p>
                   <span class="{tag_cls}">{r['Status']}</span>
                 </div>
                 """, unsafe_allow_html=True)
