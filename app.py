@@ -8,24 +8,24 @@ from sklearn.metrics import mean_absolute_error, r2_score
 # Page Configuration
 st.set_page_config(page_title="Student Performance Insights", layout="centered")
 st.title("Student Performance Insights")
-st.markdown("Predict student exam outcomes, calculate GPA & CGPA impact, and generate 30-day intervention plans.")
+st.markdown("Predict multi-subject student exam outcomes, calculate credit-weighted SGPA & CGPA, and generate 30-day intervention plans.")
 
-# Helper function: Convert 0-100 score to 10-point GPA & Letter Grade
+# Helper function: Convert 0-100 score to 10-point Grade Point & Letter Grade
 def get_gpa_and_grade(score):
     if score >= 90:
-        return 10.0, "O (Outstanding)"
+        return 10.0, "O"
     elif score >= 80:
-        return 9.0, "A+ (Excellent)"
+        return 9.0, "A+"
     elif score >= 70:
-        return 8.0, "A (Very Good)"
+        return 8.0, "A"
     elif score >= 60:
-        return 7.0, "B+ (Good)"
+        return 7.0, "B+"
     elif score >= 55:
-        return 6.0, "B (Above Average)"
+        return 6.0, "B"
     elif score >= 50:
-        return 5.0, "C (Average)"
+        return 5.0, "C"
     else:
-        return 0.0, "F (Fail)"
+        return 0.0, "F"
 
 # 1. Generate realistic training dataset (250 records)
 np.random.seed(42)
@@ -71,38 +71,83 @@ st.bar_chart(importance_df.set_index("Factor"))
 
 st.divider()
 
-# 4. Interactive Single-Student Simulator + GPA & CGPA Calculator
-st.subheader("Simulate Individual Student Outcome & CGPA")
-in_attendance = st.slider("Attendance (%)", min_value=40, max_value=100, value=78)
-in_prev = st.number_input("Previous Exam Score (out of 100)", min_value=0, max_value=100, value=68)
-in_assign = st.slider("Assignment Completion (%)", min_value=0, max_value=100, value=85)
+# 4. Interactive 6-Subject Student Simulator + Credit-Weighted SGPA & CGPA
+st.subheader("Simulate 6-Subject Semester Outcome & CGPA")
+st.markdown("Enter details for all **6 subjects** below to predict subject-wise marks, credit-weighted SGPA, and updated CGPA.")
 
 c_gpa1, c_gpa2 = st.columns(2)
-current_cgpa = c_gpa1.number_input("Current CGPA (out of 10)", min_value=0.0, max_value=10.0, value=7.4, step=0.1)
-completed_sems = c_gpa2.number_input("Completed Semesters", min_value=1, max_value=8, value=3, step=1)
+current_cgpa = c_gpa1.number_input("Current CGPA (out of 10)", min_value=0.0, max_value=10.0, value=7.40, step=0.1)
+completed_sems = c_gpa2.number_input("Completed Semesters", min_value=1, max_value=8, value=2, step=1)
 
-if st.button("Analyze Performance & CGPA"):
-    input_data = pd.DataFrame([[in_attendance, in_prev, in_assign]], columns=feature_cols)
-    predicted_score = model.predict(input_data)[0]
-    pred_gpa, letter_grade = get_gpa_and_grade(predicted_score)
-    new_cgpa = ((current_cgpa * completed_sems) + pred_gpa) / (completed_sems + 1)
+default_subjects = [
+    ("Data Structures", 4, 84, 76, 88),
+    ("Operating Systems", 4, 72, 64, 75),
+    ("Database Management", 4, 88, 82, 92),
+    ("Computer Networks", 3, 68, 58, 70),
+    ("Discrete Mathematics", 4, 79, 71, 80),
+    ("Software Engineering Lab", 2, 92, 85, 95)
+]
+
+subject_inputs = []
+for i, (def_name, def_cred, def_att, def_prev, def_assign) in enumerate(default_subjects):
+    with st.expander(f"Subject {i + 1}: {def_name}", expanded=(i == 0)):
+        s_col1, s_col2 = st.columns([3, 1])
+        s_name = s_col1.text_input("Subject Name", value=def_name, key=f"name_{i}")
+        s_cred = s_col2.number_input("Credits", min_value=1, max_value=6, value=def_cred, key=f"cred_{i}")
+
+        m_col1, m_col2, m_col3 = st.columns(3)
+        s_att = m_col1.slider("Attendance (%)", 40, 100, def_att, key=f"att_{i}")
+        s_prev = m_col2.number_input("Prev Score", 0, 100, def_prev, key=f"prev_{i}")
+        s_assign = m_col3.slider("Assignments (%)", 0, 100, def_assign, key=f"assign_{i}")
+
+        subject_inputs.append({
+            "Subject": s_name,
+            "Credits": s_cred,
+            "Attendance (%)": s_att,
+            "Previous Exam Score": s_prev,
+            "Assignment Completion (%)": s_assign
+        })
+
+if st.button("Analyze All 6 Subjects & CGPA"):
+    sub_df = pd.DataFrame(subject_inputs)
+    sub_df["Predicted Score"] = model.predict(sub_df[feature_cols]).round(1)
+
+    gpa_info = sub_df["Predicted Score"].apply(get_gpa_and_grade)
+    sub_df["Grade Point"] = [g[0] for g in gpa_info]
+    sub_df["Grade"] = [g[1] for g in gpa_info]
+    sub_df["Credit Points"] = sub_df["Credits"] * sub_df["Grade Point"]
+
+    total_credits = sub_df["Credits"].sum()
+    sem_sgpa = sub_df["Credit Points"].sum() / total_credits
+    new_cgpa = ((current_cgpa * completed_sems) + sem_sgpa) / (completed_sems + 1)
     cgpa_delta = new_cgpa - current_cgpa
+    avg_score = sub_df["Predicted Score"].mean()
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Predicted Score", f"{predicted_score:.1f} / 100", letter_grade)
-    m2.metric("Predicted SGPA", f"{pred_gpa:.1f} / 10")
+    m1.metric("Semester Avg Score", f"{avg_score:.1f} / 100")
+    m2.metric("Credit-Weighted SGPA", f"{sem_sgpa:.2f} / 10")
     m3.metric("Projected CGPA", f"{new_cgpa:.2f} / 10", f"{cgpa_delta:+.2f}")
 
-    st.subheader("Recommended Actions")
-    if in_attendance < 75:
-        st.warning("Attendance Alert: Below the 75% minimum requirement. Schedule a faculty mentor check-in.")
-    if in_assign < 70:
-        st.info("Coursework Plan: Raising assignment completion above 85% can recover ~4-6 marks.")
-    if predicted_score < 50:
-        st.error("High Academic Risk: Recommend peer tutoring and remedial weekend sessions.")
-    elif predicted_score >= 85:
+    st.dataframe(
+        sub_df[["Subject", "Credits", "Attendance (%)", "Predicted Score", "Grade", "Grade Point"]],
+        use_container_width=True
+    )
+
+    # Subject-Specific Recommended Actions
+    st.subheader("Subject-Wise Recommended Actions")
+    low_att_subs = sub_df[sub_df["Attendance (%)"] < 75]["Subject"].tolist()
+    weak_subs = sub_df[sub_df["Predicted Score"] < 60]["Subject"].tolist()
+    low_assign_subs = sub_df[sub_df["Assignment Completion (%)"] < 75]["Subject"].tolist()
+
+    if low_att_subs:
+        st.warning(f"Attendance Shortage (<75%) in: {', '.join(low_att_subs)}. Prioritize classes immediately to avoid exam debarment.")
+    if weak_subs:
+        st.error(f"High Academic Risk (<60 marks) in: {', '.join(weak_subs)}. Schedule faculty mentor tutoring.")
+    if low_assign_subs:
+        st.info(f"Pending Assignments (<75%) in: {', '.join(low_assign_subs)}. Completing coursework can add +4 to 6 marks.")
+    if not low_att_subs and not weak_subs and not low_assign_subs:
         st.balloons()
-        st.success("Top Performer: Eligible for advanced project tracks or peer-mentorship roles.")
+        st.success("All 6 subjects are on track! Eligible for honours projects or peer mentorship.")
 
 st.divider()
 
@@ -139,7 +184,6 @@ uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 if uploaded_file is not None:
     batch_df = pd.read_csv(uploaded_file)
 
-    # Smart Column Mapper if external CSV headers do not match exact names
     if not all(col in batch_df.columns for col in feature_cols):
         st.info("Custom CSV detected. Map your columns to the model inputs below:")
         cols = list(batch_df.columns)
@@ -154,13 +198,11 @@ if uploaded_file is not None:
             map_assign: "Assignment Completion (%)"
         })
 
-    # Run Predictions, GPA/CGPA & Root-Cause Tagging
     batch_df["Predicted Final Score"] = model.predict(batch_df[feature_cols]).round(1)
     gpa_results = batch_df["Predicted Final Score"].apply(get_gpa_and_grade)
     batch_df["Predicted SGPA"] = [res[0] for res in gpa_results]
-    batch_df["Grade"] = [res[1].split(" ")[0] for res in gpa_results]
+    batch_df["Grade"] = [res[1] for res in gpa_results]
 
-    # Calculate Updated CGPA (uses Previous CGPA column if available, otherwise estimates from Previous Exam Score)
     if "Previous CGPA" in batch_df.columns:
         base_cgpa = batch_df["Previous CGPA"]
     else:
@@ -187,7 +229,6 @@ if uploaded_file is not None:
 
     batch_df["Primary Risk Factor"] = batch_df.apply(get_primary_risk, axis=1)
 
-    # Class Summary KPIs
     at_risk_count = (batch_df["Risk Status"] == "At Risk").sum()
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Students", len(batch_df))
@@ -195,14 +236,12 @@ if uploaded_file is not None:
     c3.metric("Avg Class CGPA", f"{batch_df['Projected CGPA'].mean():.2f}")
     c4.metric("At-Risk Students", f"{at_risk_count}")
 
-    # Visual Grade Distribution Chart
     bins = [0, 50, 75, 100]
     labels = ["Fail (<50)", "Average (50-75)", "Distinction (>75)"]
     grade_dist = pd.cut(batch_df["Predicted Final Score"], bins=bins, labels=labels).value_counts().reindex(labels)
     st.markdown("**Class Score Distribution**")
     st.bar_chart(grade_dist)
 
-    # Interactive Roster Filter
     filter_option = st.radio("Filter Student Roster:", ["All Students", "At-Risk Only"], horizontal=True)
     display_df = batch_df[batch_df["Risk Status"] == "At Risk"] if filter_option == "At-Risk Only" else batch_df
 
@@ -215,7 +254,6 @@ if uploaded_file is not None:
         mime="text/csv"
     )
 
-    # 6. Automated Mentor Action Plan & Goal Seeker
     st.divider()
     st.subheader("Automated Mentor Action Plan & Goal Seeker")
 
