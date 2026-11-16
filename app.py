@@ -124,30 +124,32 @@ def render_personal_dashboard(stu=None):
                 st.markdown(f'<div class="score-badge">CIE: {cie_val}/50 &nbsp;|&nbsp; Predicted SEE: {see_val}/50 &nbsp;|&nbsp; Predicted Final: {tot_val}/100</div>', unsafe_allow_html=True)
                 rows.append({"Subject": s_nm, "Credits": s_cr, "Attendance (%)": s_at, "CIE (/50)": cie_val, "Predicted SEE (/50)": see_val, "Predicted Total (/100)": tot_val})
 
+        # Compute live predicted SGPA from the 6 subjects so Tab 2 always stays synced
+        live_df = pd.DataFrame(rows)
+        live_res = [get_grade(t, c, s) for t, c, s in zip(live_df["Predicted Total (/100)"], live_df["CIE (/50)"], live_df["Predicted SEE (/50)"])]
+        live_df["GP"] = [r[0] for r in live_res]
+        live_df["Grade"] = [r[1] for r in live_res]
+        live_sgpa = round(float((live_df["Credits"] * live_df["GP"]).sum() / live_df["Credits"].sum()), 2)
+        st.session_state[f"pred_sgpa_{uid}"] = live_sgpa
+
         if st.button("Predict Academics & Generate Study Planner", key=f"btn_ac_{uid}"):
-            sdf = pd.DataFrame(rows)
-            res = [get_grade(t, c, s) for t, c, s in zip(sdf["Predicted Total (/100)"], sdf["CIE (/50)"], sdf["Predicted SEE (/50)"])]
-            sdf["GP"] = [r[0] for r in res]
-            sdf["Grade"] = [r[1] for r in res]
-            sgpa = (sdf["Credits"] * sdf["GP"]).sum() / sdf["Credits"].sum()
-            st.session_state["calc_sgpa"] = round(sgpa, 2)
             m1, m2, m3 = st.columns(3)
-            m1.metric("Predicted Avg", f"{sdf['Predicted Total (/100)'].mean():.1f} / 100")
-            m2.metric("Predicted SGPA", f"{sgpa:.2f} / 10")
-            m3.metric("Subjects Passed", f"{int((sdf['Grade'] != 'F').sum())} / 6")
-            st.dataframe(sdf[["Subject", "Credits", "CIE (/50)", "Predicted SEE (/50)", "Predicted Total (/100)", "Grade", "GP"]].style.map(style_grade, subset=["Grade"]), use_container_width=True)
-            strengths = sdf[sdf["Predicted Total (/100)"] >= 75]["Subject"].tolist()
-            weaknesses = sdf[(sdf["Predicted Total (/100)"] < 60) | (sdf["CIE (/50)"] < 22)]["Subject"].tolist()
+            m1.metric("Predicted Avg", f"{live_df['Predicted Total (/100)'].mean():.1f} / 100")
+            m2.metric("Predicted SGPA", f"{live_sgpa:.2f} / 10")
+            m3.metric("Subjects Passed", f"{int((live_df['Grade'] != 'F').sum())} / 6")
+            st.dataframe(live_df[["Subject", "Credits", "CIE (/50)", "Predicted SEE (/50)", "Predicted Total (/100)", "Grade", "GP"]].style.map(style_grade, subset=["Grade"]), use_container_width=True)
+            strengths = live_df[live_df["Predicted Total (/100)"] >= 75]["Subject"].tolist()
+            weaknesses = live_df[(live_df["Predicted Total (/100)"] < 60) | (live_df["CIE (/50)"] < 22)]["Subject"].tolist()
             c_sw1, c_sw2 = st.columns(2)
             c_sw1.markdown(f'<div class="sw-box sw-str"><strong>Academic Strengths (&ge;75)</strong><br>{", ".join(strengths) if strengths else "Keep pushing above 75"}</div>', unsafe_allow_html=True)
             c_sw2.markdown(f'<div class="sw-box sw-wk"><strong>Academic Weaknesses (&lt;60)</strong><br>{", ".join(weaknesses) if weaknesses else "No critical subject risk"}</div>', unsafe_allow_html=True)
-            plan = [{"Subject": r["Subject"], "Weekly Hours": "8 hrs/wk" if r["Predicted Total (/100)"] < 60 else ("5 hrs/wk" if r["Predicted Total (/100)"] < 75 else "3 hrs/wk"), "Focus": "VTU Past Papers + CIE Recovery" if r["Predicted Total (/100)"] < 60 else "Module Revision + Mock Tests"} for _, r in sdf.iterrows()]
+            plan = [{"Subject": r["Subject"], "Weekly Hours": "8 hrs/wk" if r["Predicted Total (/100)"] < 60 else ("5 hrs/wk" if r["Predicted Total (/100)"] < 75 else "3 hrs/wk"), "Focus": "VTU Past Papers + CIE Recovery" if r["Predicted Total (/100)"] < 60 else "Module Revision + Mock Tests"} for _, r in live_df.iterrows()]
             st.dataframe(pd.DataFrame(plan), use_container_width=True)
 
     with tab_place:
         st.subheader("How to Maintain & Upgrade Both Skills and Academic Score")
         uid_p = stu["USN"] if stu and "USN" in stu else "def_p"
-        stu_sgpa = st.session_state.get("calc_sgpa", float(stu["SGPA"]) if stu and "SGPA" in stu else 7.55)
+        stu_sgpa = st.session_state.get(f"pred_sgpa_{uid_p}", float(stu["SGPA"]) if stu and "SGPA" in stu else 7.55)
 
         p1, p2 = st.columns(2)
         min_cutoff = p1.number_input("Target Placement Cutoff", 5.5, 9.0, 7.25, 0.25, key=f"pcut_{uid_p}")
@@ -158,20 +160,19 @@ def render_personal_dashboard(stu=None):
         init_sk = [s for s in init_sk if s in all_skills]
         sel_skills = st.multiselect("Current Skills (Select What You Already Know):", all_skills, default=init_sk, key=f"psk_{uid_p}")
 
-        target_next_sgpa = round(min(9.5, stu_sgpa + 0.85), 2)
+        step_up = 0.85 if stu_sgpa < min_cutoff else 0.45
+        target_next_sgpa = round(min(9.8, stu_sgpa + step_up), 2)
         skill_readiness = int((len(sel_skills) / len(all_skills)) * 100)
-        acad_split = "55% Academics / 45% Skills" if stu_sgpa < min_cutoff else "35% Academics / 65% Skills"
         rem_sems = max(1, 7 - int(sems_completed))
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Target Next Sem GPA", f"{target_next_sgpa:.2f} SGPA", f"+{target_next_sgpa - stu_sgpa:.2f} Step-Up")
+        c1, c2 = st.columns(2)
+        c1.metric("Target Next Sem GPA", f"{target_next_sgpa:.2f} SGPA", f"{target_next_sgpa - stu_sgpa:+.2f} from Predicted ({stu_sgpa:.2f})")
         c2.metric("Skill Readiness", f"{skill_readiness}%", f"{len(sel_skills)}/{len(all_skills)} Skills")
-        c3.metric("Recommended Split", acad_split.split("/")[0].strip())
 
         if stu_sgpa >= min_cutoff:
-            st.markdown(f'<div class="score-badge">Academic Cutoff Maintained ({stu_sgpa:.2f} &ge; {min_cutoff:.2f}) across {int(sems_completed)} completed semesters! Target {target_next_sgpa:.2f} SGPA next sem while spending 65% of your effort building projects, DSA & internships.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="score-badge">Predicted SGPA ({stu_sgpa:.2f}) is above the {min_cutoff:.2f} cutoff! Target {target_next_sgpa:.2f} SGPA next semester while building projects, DSA & internships.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="score-badge">With {int(sems_completed)} semesters completed ({rem_sems} left before placements), aim for a steady +0.85 step-up to {target_next_sgpa:.2f} SGPA while building strong skills that unlock skill-first companies (6.0+ criteria).</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="score-badge">Based on Predicted SGPA ({stu_sgpa:.2f}) with {int(sems_completed)} semesters completed ({rem_sems} left), target {target_next_sgpa:.2f} SGPA next semester while upgrading skills for skill-first companies (6.0+ criteria).</div>', unsafe_allow_html=True)
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
