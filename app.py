@@ -173,3 +173,119 @@ def render_personal_dashboard(stu=None):
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
+        s_col1.markdown(f'<div class="sw-box sw-str"><strong>Placement Strengths</strong><br>Cutoff Criteria: {"Meets >= " + str(min_cutoff) + " Cutoff" if stu_sgpa >= min_cutoff else "Needs " + str(abs(cgpa_diff)) + " boost"}<br>Skills: {", ".join(sel_skills) if sel_skills else "Add core skills above"}</div>', unsafe_allow_html=True)
+        s_col2.markdown(f'<div class="sw-box sw-wk"><strong>Action Plan to Cross Cutoff & Get Placed</strong><br>1. Academic Target: {"Maintain >= " + str(min_cutoff) if stu_sgpa >= min_cutoff else "Target " + str(min(10.0, req_sgpa)) + " SGPA next sem"}<br>2. Add Missing Skills: {", ".join(missing_skills[:3]) if missing_skills else "All core skills ready!"}</div>', unsafe_allow_html=True)
+
+# Main Router: Personal Dashboard vs Batch & Faculty View
+if st.session_state.get("active_stu") is not None:
+    render_personal_dashboard(st.session_state["active_stu"])
+else:
+    main_tab1, main_tab2 = st.tabs(["1,000-Student Profiles & Cutoff Check", "Faculty & Mentor Teaching Insights"])
+
+    with main_tab1:
+        st.subheader("Batch Class Analysis (Upload CSV)")
+        min_batch_cutoff = st.slider("Set Minimum Placement CGPA Cutoff for Class:", 5.5, 8.5, 7.0, 0.25)
+
+        np.random.seed(99)
+        ns = 1000
+        fn = ["Nandini", "Kavya", "Abhishek", "Aarav", "Diya", "Rohan", "Meera", "Kabir", "Ananya", "Vikram"]
+        ln = ["Nair", "Gowda", "Das", "Sharma", "Patel", "Reddy", "Verma", "Gupta", "Iyer", "Singh"]
+        skill_pools = [
+            "Python / Java / C++, Data Structures & Algorithms, SQL & DBMS, Full-Stack Web (React/Node)",
+            "Python / Java / C++, Machine Learning / AI, SQL & DBMS",
+            "Python / Java / C++, Full-Stack Web (React/Node), Cloud / Docker / Git, SQL & DBMS",
+            "Python / Java / C++, SQL & DBMS"
+        ]
+        samp = pd.DataFrame({
+            "Student Name": [f"{np.random.choice(fn)} {np.random.choice(ln)}" for _ in range(ns)],
+            "USN": [f"1RN23CS{100+i}" for i in range(ns)],
+            "Attendance (%)": np.random.randint(62, 100, ns),
+            "Internal 1 (/50)": np.random.randint(18, 50, ns),
+            "Internal 2 (/50)": np.random.randint(20, 50, ns),
+            "Core Skills": [np.random.choice(skill_pools) for _ in range(ns)]
+        })
+        st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students_cutoff.csv", "text/csv")
+
+        up = st.file_uploader("Upload CSV", type=["csv"])
+        if up is not None:
+            st.session_state["batch_csv"] = pd.read_csv(up)
+
+        if "batch_csv" in st.session_state:
+            bdf = st.session_state["batch_csv"].copy()
+            if "USN" not in bdf.columns:
+                bdf["USN"] = [f"1RN23CS{100+i}" for i in range(len(bdf))]
+            if all(k in bdf.columns for k in ["Internal 1 (/50)", "Internal 2 (/50)"]):
+                bdf["CIE (/50)"] = (((bdf["Internal 1 (/50)"] + bdf["Internal 2 (/50)"]) / 100.0) * 50.0).round(1)
+            elif "CIE (/50)" not in bdf.columns:
+                bdf["CIE (/50)"] = 35.0
+            bdf["Predicted SEE (/50)"] = see_model.predict(bdf[["Attendance (%)", "CIE (/50)"]].values).round(1)
+            bdf["Predicted Total (/100)"] = (bdf["CIE (/50)"] + bdf["Predicted SEE (/50)"]).round(1)
+            bres = [get_grade(t, c, s) for t, c, s in zip(bdf["Predicted Total (/100)"], bdf["CIE (/50)"], bdf["Predicted SEE (/50)"])]
+            bdf["SGPA"] = [r[0] for r in bres]
+            if "Core Skills" not in bdf.columns: bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
+
+            bdf["Cutoff Gap"] = (bdf["SGPA"] - min_batch_cutoff).round(2)
+            bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min CGPA")
+            st.session_state["processed_bdf"] = bdf
+
+            eligible_cnt = int((bdf["SGPA"] >= min_batch_cutoff).sum())
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Students", len(bdf))
+            k2.metric("Min CGPA Cutoff", f"{min_batch_cutoff:.2f}")
+            k3.metric("Crossed Cutoff", f"{eligible_cnt} / {len(bdf)}")
+            k4.metric("Below Cutoff", len(bdf) - eligible_cnt)
+
+            st.subheader("Individual Student Profiles (Min CGPA Cutoff Check)")
+            q = st.text_input("Search student name or ID", placeholder="e.g., Kavya or 1RN23CS105")
+            filtered = bdf[bdf["Student Name"].str.contains(q, case=False, na=False) | bdf["USN"].str.contains(q, case=False, na=False)] if q else bdf
+
+            grid_cols = st.columns(3)
+            for idx, (_, r) in enumerate(filtered.head(9).iterrows()):
+                initials = "".join([w[0] for w in str(r["Student Name"]).split()[:2]]).upper()
+                tag_cls = "tag-ok" if r["SGPA"] >= min_batch_cutoff else "tag-risk"
+                with grid_cols[idx % 3]:
+                    st.markdown(f"""
+                    <div class="stu-card">
+                      <div class="stu-avatar">{initials}</div>
+                      <p class="stu-name">{r['Student Name']}</p>
+                      <p class="stu-id">ID: {r['USN']}</p>
+                      <p class="stu-stat">Predicted SGPA: {r['SGPA']} / 10</p>
+                      <p class="stu-stat">Cutoff ({min_batch_cutoff}): {r['Cutoff Gap']:+.2f}</p>
+                      <span class="{tag_cls}">{r['Status']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("Open Personal Dashboard", key=f"open_{r['USN']}_{idx}"):
+                        st.session_state["active_stu"] = r.to_dict()
+                        st.rerun()
+        else:
+            st.divider()
+            render_personal_dashboard(None)
+
+    with main_tab2:
+        st.subheader("Engineering Faculty & Proctor Performance Co-Pilot")
+        pbdf = st.session_state.get("processed_bdf", None)
+        if pbdf is not None:
+            low_cie = int((pbdf["CIE (/50)"] < 22).sum())
+            low_att = int((pbdf["Attendance (%)"] < 75).sum())
+            f1, f2, f3 = st.columns(3)
+            f1.metric("Batch Avg CIE", f"{pbdf['CIE (/50)'].mean():.1f} / 50")
+            f2.metric("Low CIE Risk (<22)", f"{low_cie} Students")
+            f3.metric("Attendance <75%", f"{low_att} Students")
+        else:
+            st.info("Upload your 1,000-student CSV in the first tab to see live batch diagnostics alongside these engineering teaching strategies.")
+
+        st.markdown("""
+        <div class="fac-card"><strong>1. Problem-First Lectures (Break the 15-Minute Rule)</strong><br>
+        Start every engineering module with a real-world system failure or industry use case before deriving equations or algorithms. Pause every 15–20 minutes for a 3-minute live code trace or GATE/VTU 2-mark problem sprint.</div>
+        <div class="fac-card"><strong>2. Early Internal-1 Proctor Intervention</strong><br>
+        Identify students scoring below 22/50 in Internal 1 or dipping below 75% attendance immediately. Group them into a 30-minute weekly bridge tutorial before Semester End Exams (SEE) rather than waiting until finals.</div>
+        <div class="fac-card"><strong>3. Align Labs & Assignments With Campus Placements</strong><br>
+        Replace repetitive record-copying with mini-problem statements, edge-case debugging, 2-minute viva defenses, and GitHub pushes—connecting OS, DBMS, CN, and DSA topics directly to technical interview questions.</div>
+        <div class="fac-card"><strong>4. Mid-Semester Anonymous 3-Question Pulse Check</strong><br>
+        Run a quick 3-question form after Internal 1 (<i>What clicked? Which module felt rushed? What should change?</i>). Acting on even one student suggestion significantly boosts classroom engagement and trust.</div>
+        """, unsafe_allow_html=True)
+
+        if pbdf is not None:
+            st.subheader("Priority Proctor Mentoring Queue (Students Needing Immediate Guidance)")
+            at_risk_df = pbdf[(pbdf["CIE (/50)"] < 22) | (pbdf["Attendance (%)"] < 75)][["USN", "Student Name", "Attendance (%)", "CIE (/50)", "SGPA", "Status"]].head(25)
+            st.dataframe(at_risk_df, use_container_width=True)
