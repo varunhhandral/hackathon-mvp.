@@ -104,4 +104,4 @@ if uploaded_file is not None:
         batch_df["Predicted Final Score"] = model.predict(batch_df[feature_cols]).round(1)
         batch_df["Risk Status"] = np.where(
             (batch_df["Predicted Final Score"] < 55) | (batch_df["Attendance (%)"] < 75),
-            "🚨 At
+            " At
