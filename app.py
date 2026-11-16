@@ -28,6 +28,7 @@ div.stButton > button {background: linear-gradient(90deg, #4f46e5, #9333ea, #db2
 .stu-id {font-size: 0.78rem; color: #64748b; margin: 2px 0 8px; font-weight: 600;}
 .stu-stat {font-size: 0.83rem; color: #334155; margin: 3px 0; font-weight: 600;}
 .tag-ok {display: inline-block; background: #dcfce7; color: #166534; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
+.tag-warn {display: inline-block; background: #fef3c7; color: #92400e; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
 .tag-risk {display: inline-block; background: #fee2e2; color: #991b1b; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
 .score-badge {background: linear-gradient(90deg, #eef2ff, #fae8ff); border-left: 4px solid #8b5cf6; padding: 10px 14px; border-radius: 10px; font-weight: 700; color: #1e1b4b; font-size: 0.88rem; margin-top: 6px;}
 .profile-banner {background: linear-gradient(90deg, #eef2ff, #fdf2f8); border: 1.5px solid #c4b5fd; padding: 14px 18px; border-radius: 16px; margin-bottom: 14px;}
@@ -40,17 +41,21 @@ div.stButton > button {background: linear-gradient(90deg, #4f46e5, #9333ea, #db2
   <h1>Student Performance & Placement Insights</h1>
   <p>RNSIT Academic Predictor, Step-by-Step Score & Skill Upgrader & Faculty Teaching Co-Pilot</p>
   <span class="pill">CIE (50) + Predicted SEE (50)</span>
-  <span class="pill">Skill & Score Growth Plan</span>
+  <span class="pill">Students at Risk Tab</span>
   <span class="pill">Faculty & Mentor Insights</span>
 </div>
 """, unsafe_allow_html=True)
 
-np.random.seed(42)
-n_tr = 400
-tr_att = np.random.randint(50, 100, n_tr)
-tr_cie = np.random.uniform(15, 50, n_tr)
-tr_see = np.clip(0.68 * tr_cie + 0.14 * tr_att + np.random.normal(0, 2.0, n_tr), 10, 50)
-see_model = RandomForestRegressor(n_estimators=80, random_state=42).fit(np.column_stack([tr_att, tr_cie]), tr_see)
+@st.cache_resource
+def train_model():
+    np.random.seed(42)
+    n_tr = 400
+    tr_att = np.random.randint(50, 100, n_tr)
+    tr_cie = np.random.uniform(15, 50, n_tr)
+    tr_see = np.clip(0.68 * tr_cie + 0.14 * tr_att + np.random.normal(0, 2.0, n_tr), 10, 50)
+    return RandomForestRegressor(n_estimators=80, random_state=42).fit(np.column_stack([tr_att, tr_cie]), tr_see)
+
+see_model = train_model()
 
 def get_grade(tot, cie, see):
     if cie < 20 or see < 18 or tot < 40: return 0.0, "F"
@@ -73,8 +78,8 @@ def render_personal_dashboard(stu=None):
             st.rerun()
         st.markdown(f"""
         <div class="profile-banner">
-          <strong style="color:#312e81;font-size:1.15rem;">360° Student Dashboard: {stu['Student Name']}</strong><br>
-          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu['USN']} &nbsp;|&nbsp; Status: {stu['Status']} &nbsp;|&nbsp; Gradual Academic & Skill Upgrade Roadmap</span>
+          <strong style="color:#312e81;font-size:1.15rem;">360° Student Dashboard: {stu.get('Student Name', 'Student')}</strong><br>
+          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu.get('USN', '1RN23CS100')} &nbsp;|&nbsp; Status: {stu.get('Status', 'Active')} &nbsp;|&nbsp; Prev Sem Failed Subjects: {int(stu.get('Prev Sem Failed Subjects', 0))}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -84,7 +89,7 @@ def render_personal_dashboard(stu=None):
         eval_mode = st.radio("Internals Completed:", ["Both Internals (1 & 2)", "Only 1st Internal"], horizontal=True)
         only_one = (eval_mode == "Only 1st Internal")
 
-        d_att = int(stu["Attendance (%)"]) if stu else 84
+        d_att = int(stu["Attendance (%)"]) if stu and "Attendance (%)" in stu else 84
         d_i1 = int(stu["Internal 1 (/50)"]) if stu and "Internal 1 (/50)" in stu else 41
         d_i2 = int(stu["Internal 2 (/50)"]) if stu and "Internal 2 (/50)" in stu else 39
 
@@ -97,7 +102,7 @@ def render_personal_dashboard(stu=None):
             ("Software Engg", 3, min(100, d_att+5), min(50, d_i1+5), min(50, d_i2+5))
         ]
 
-        uid = stu["USN"] if stu else "default"
+        uid = stu["USN"] if stu and "USN" in stu else "default"
         rows = []
         for i, (nm, cr, at, i1, i2) in enumerate(subs_init):
             with st.expander(f"Subject {i+1}: {nm}", expanded=(i == 0)):
@@ -141,7 +146,7 @@ def render_personal_dashboard(stu=None):
 
     with tab_place:
         st.subheader("How to Maintain & Upgrade Both Skills and Academic Score")
-        uid_p = stu["USN"] if stu else "def_p"
+        uid_p = stu["USN"] if stu and "USN" in stu else "def_p"
         stu_sgpa = st.session_state.get("calc_sgpa", float(stu["SGPA"]) if stu and "SGPA" in stu else 7.55)
 
         p1, p2 = st.columns(2)
@@ -170,7 +175,7 @@ def render_personal_dashboard(stu=None):
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
-        s_col1.markdown(f"""
+        s_col1.markdown("""
         <div class="sw-box sw-str"><strong>1. How to Upgrade Academic Score Steadily</strong><br>
         &bull; Protect CIE first: Aim for 36+/50 in Internals (easiest marks to secure).<br>
         &bull; Zero backlogs rule: Clear weak subjects first before chasing 9+ SGPA.<br>
@@ -190,24 +195,27 @@ def render_personal_dashboard(stu=None):
         ]
         st.dataframe(pd.DataFrame(routine), use_container_width=True)
 
-# Main Router: Personal Dashboard vs Batch & Faculty View
 if st.session_state.get("active_stu") is not None:
     render_personal_dashboard(st.session_state["active_stu"])
 else:
-    main_tab1, main_tab2 = st.tabs(["1,000-Student Profiles & Cutoff Check", "Faculty & Mentor Teaching Insights"])
+    main_tab1, main_tab2, main_tab3 = st.tabs(["1,000-Student Profiles & Cutoff Check", "Students at Risk", "Faculty & Mentor Teaching Insights"])
 
     with main_tab1:
         st.subheader("Batch Class Analysis (Upload CSV)")
-        min_batch_cutoff = st.slider("Set Minimum Placement CGPA Cutoff for Class:", 5.5, 8.5, 7.0, 0.25)
-
-        up = st.file_uploader("Upload CSV", type=["csv"])
+        c_cut1, c_cut2 = st.columns([1.2, 1.8])
+        min_batch_cutoff = c_cut1.number_input("Min Cutoff Number:", 5.0, 9.5, 7.0, 0.25)
+        up = c_cut2.file_uploader("Upload CSV", type=["csv"])
         if up is not None:
             st.session_state["batch_csv"] = pd.read_csv(up)
 
         if "batch_csv" in st.session_state:
             bdf = st.session_state["batch_csv"].copy()
+            if "Student Name" not in bdf.columns:
+                bdf["Student Name"] = [f"Student {i+1}" for i in range(len(bdf))]
             if "USN" not in bdf.columns:
                 bdf["USN"] = [f"1RN23CS{100+i}" for i in range(len(bdf))]
+            if "Attendance (%)" not in bdf.columns:
+                bdf["Attendance (%)"] = 80
             if all(k in bdf.columns for k in ["Internal 1 (/50)", "Internal 2 (/50)"]):
                 bdf["CIE (/50)"] = (((bdf["Internal 1 (/50)"] + bdf["Internal 2 (/50)"]) / 100.0) * 50.0).round(1)
             elif "CIE (/50)" not in bdf.columns:
@@ -216,32 +224,44 @@ else:
             bdf["Predicted Total (/100)"] = (bdf["CIE (/50)"] + bdf["Predicted SEE (/50)"]).round(1)
             bres = [get_grade(t, c, s) for t, c, s in zip(bdf["Predicted Total (/100)"], bdf["CIE (/50)"], bdf["Predicted SEE (/50)"])]
             bdf["SGPA"] = [r[0] for r in bres]
-            if "Core Skills" not in bdf.columns: bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
+            if "Core Skills" not in bdf.columns:
+                bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
+            if "Prev Sem Failed Subjects" not in bdf.columns:
+                bdf["Prev Sem Failed Subjects"] = np.where(bdf["CIE (/50)"] < 20, 2, np.where(bdf["CIE (/50)"] < 23, 1, 0))
 
+            bdf["At Risk"] = (bdf["Prev Sem Failed Subjects"] > 0) | (bdf["SGPA"] < 5.0)
             bdf["Cutoff Gap"] = (bdf["SGPA"] - min_batch_cutoff).round(2)
-            bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min Cutoff")
+            bdf["Status"] = np.where(
+                bdf["At Risk"],
+                "At Risk (Prev Fail / <5 GPA)",
+                np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min Cutoff")
+            )
             st.session_state["processed_bdf"] = bdf
 
-            eligible_cnt = int((bdf["SGPA"] >= min_batch_cutoff).sum())
-            k1, k2, k3 = st.columns(3)
+            eligible_cnt = int((~bdf["At Risk"] & (bdf["SGPA"] >= min_batch_cutoff)).sum())
+            at_risk_cnt = int(bdf["At Risk"].sum())
+
+            k1, k2, k3, k4 = st.columns(4)
             k1.metric("Students", len(bdf))
             k2.metric("Min Cutoff", f"{min_batch_cutoff:.2f}")
             k3.metric("Crossed Cutoff", f"{eligible_cnt} / {len(bdf)}")
+            k4.metric("Students at Risk", f"{at_risk_cnt}")
 
             st.subheader("Individual Student Profiles")
             q = st.text_input("Search student name or ID", placeholder="e.g., Kavya or 1RN23CS105")
-            filtered = bdf[bdf["Student Name"].str.contains(q, case=False, na=False) | bdf["USN"].str.contains(q, case=False, na=False)] if q else bdf
+            filtered = bdf[bdf["Student Name"].astype(str).str.contains(q, case=False, na=False) | bdf["USN"].astype(str).str.contains(q, case=False, na=False)] if q else bdf
 
             grid_cols = st.columns(3)
             for idx, (_, r) in enumerate(filtered.head(9).iterrows()):
-                initials = "".join([w[0] for w in str(r["Student Name"]).split()[:2]]).upper()
-                tag_cls = "tag-ok" if r["SGPA"] >= min_batch_cutoff else "tag-risk"
+                parts = str(r["Student Name"]).split()
+                initials = "".join([w[0] for w in parts[:2]]).upper() if parts else "ST"
+                tag_cls = "tag-risk" if r["At Risk"] else ("tag-ok" if r["SGPA"] >= min_batch_cutoff else "tag-warn")
                 with grid_cols[idx % 3]:
                     st.markdown(f"""
                     <div class="stu-card">
                       <div class="stu-avatar">{initials}</div>
                       <p class="stu-name">{r['Student Name']}</p>
-                      <p class="stu-id">ID: {r['USN']}</p>
+                      <p class="stu-id">ID: {r['USN']} | Prev Fails: {int(r['Prev Sem Failed Subjects'])}</p>
                       <p class="stu-stat">Predicted SGPA: {r['SGPA']} / 10</p>
                       <p class="stu-stat">Cutoff ({min_batch_cutoff}): {r['Cutoff Gap']:+.2f}</p>
                       <span class="{tag_cls}">{r['Status']}</span>
@@ -255,14 +275,54 @@ else:
             render_personal_dashboard(None)
 
     with main_tab2:
+        st.subheader("Students at Risk (Failed Previous Sem Subject or GPA < 5.0)")
+        pbdf = st.session_state.get("processed_bdf", None)
+        if pbdf is not None:
+            risk_df = pbdf[pbdf["At Risk"]].copy()
+            prev_fail_cnt = int((risk_df["Prev Sem Failed Subjects"] > 0).sum())
+            low_gpa_cnt = int((risk_df["SGPA"] < 5.0).sum())
+
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Total At-Risk Students", len(risk_df))
+            r2.metric("Prev Sem Subject Fails", prev_fail_cnt)
+            r3.metric("GPA Less Than 5.0", low_gpa_cnt)
+
+            rq = st.text_input("Search at-risk student name or ID", placeholder="e.g., 1RN23CS112", key="risk_search")
+            r_filtered = risk_df[risk_df["Student Name"].astype(str).str.contains(rq, case=False, na=False) | risk_df["USN"].astype(str).str.contains(rq, case=False, na=False)] if rq else risk_df
+
+            r_cols = st.columns(3)
+            for idx, (_, r) in enumerate(r_filtered.head(9).iterrows()):
+                parts = str(r["Student Name"]).split()
+                initials = "".join([w[0] for w in parts[:2]]).upper() if parts else "ST"
+                reason = f"Failed {int(r['Prev Sem Failed Subjects'])} Prev Sub" if r["Prev Sem Failed Subjects"] > 0 else "GPA < 5.0"
+                with r_cols[idx % 3]:
+                    st.markdown(f"""
+                    <div class="stu-card">
+                      <div class="stu-avatar">{initials}</div>
+                      <p class="stu-name">{r['Student Name']}</p>
+                      <p class="stu-id">ID: {r['USN']}</p>
+                      <p class="stu-stat">SGPA: {r['SGPA']} / 10 | CIE: {r['CIE (/50)']}/50</p>
+                      <span class="tag-risk">{reason}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("Open Personal Dashboard", key=f"open_risk_{r['USN']}_{idx}"):
+                        st.session_state["active_stu"] = r.to_dict()
+                        st.rerun()
+
+            st.subheader("Complete At-Risk Student Roster")
+            st.dataframe(r_filtered[["USN", "Student Name", "Prev Sem Failed Subjects", "Attendance (%)", "CIE (/50)", "SGPA", "Status"]], use_container_width=True)
+        else:
+            st.info("Upload your student CSV in the first tab to automatically detect students who failed a previous-semester subject or have GPA < 5.0.")
+
+    with main_tab3:
         st.subheader("Engineering Faculty & Proctor Performance Co-Pilot")
         pbdf = st.session_state.get("processed_bdf", None)
         if pbdf is not None:
-            low_cie = int((pbdf["CIE (/50)"] < 22).sum())
+            risk_total = int(pbdf["At Risk"].sum())
             low_att = int((pbdf["Attendance (%)"] < 75).sum())
             f1, f2, f3 = st.columns(3)
             f1.metric("Batch Avg CIE", f"{pbdf['CIE (/50)'].mean():.1f} / 50")
-            f2.metric("Low CIE Risk (<22)", f"{low_cie} Students")
+            f2.metric("Students at Risk", f"{risk_total} Students")
             f3.metric("Attendance <75%", f"{low_att} Students")
         else:
             st.info("Upload your student CSV in the first tab to see live batch diagnostics alongside these engineering teaching strategies.")
@@ -271,7 +331,7 @@ else:
         <div class="fac-card"><strong>1. Problem-First Lectures (Break the 15-Minute Rule)</strong><br>
         Start every engineering module with a real-world system failure or industry use case before deriving equations or algorithms. Pause every 15–20 minutes for a 3-minute live code trace or GATE/VTU 2-mark problem sprint.</div>
         <div class="fac-card"><strong>2. Early Internal-1 Proctor Intervention</strong><br>
-        Identify students scoring below 22/50 in Internal 1 or dipping below 75% attendance immediately. Group them into a 30-minute weekly bridge tutorial before Semester End Exams (SEE) rather than waiting until finals.</div>
+        Identify students with previous-semester failed subjects, GPA &lt; 5.0, or CIE &lt; 22/50 immediately. Group them into a 30-minute weekly bridge tutorial before Semester End Exams (SEE) rather than waiting until finals.</div>
         <div class="fac-card"><strong>3. Align Labs & Assignments With Campus Placements</strong><br>
         Replace repetitive record-copying with mini-problem statements, edge-case debugging, 2-minute viva defenses, and GitHub pushes—connecting OS, DBMS, CN, and DSA topics directly to technical interview questions.</div>
         <div class="fac-card"><strong>4. Mid-Semester Anonymous 3-Question Pulse Check</strong><br>
@@ -280,5 +340,5 @@ else:
 
         if pbdf is not None:
             st.subheader("Priority Proctor Mentoring Queue")
-            at_risk_df = pbdf[(pbdf["CIE (/50)"] < 22) | (pbdf["Attendance (%)"] < 75)][["USN", "Student Name", "Attendance (%)", "CIE (/50)", "SGPA", "Status"]].head(25)
+            at_risk_df = pbdf[pbdf["At Risk"] | (pbdf["Attendance (%)"] < 75)][["USN", "Student Name", "Prev Sem Failed Subjects", "Attendance (%)", "CIE (/50)", "SGPA", "Status"]].head(30)
             st.dataframe(at_risk_df, use_container_width=True)
