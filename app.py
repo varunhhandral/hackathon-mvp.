@@ -122,24 +122,4 @@ for i, (def_name, def_cred, def_att, def_i1, def_i2, def_a1, def_a2, def_last) i
 if st.button("Predict SEE, Final Total (100), SGPA & CGPA"):
     sub_df = pd.DataFrame(subject_inputs)
     sub_df["Predicted SEE (/50)"] = model.predict(sub_df[feature_cols]).round(1)
-    sub_df["Final Total (/100)"] = (sub_df["CIE Marks (out of 50)"] + sub_df["Predicted SEE (/50)"]).round(1)
-
-    gpa_info = [
-        get_gpa_and_grade(tot, cie, see)
-        for tot, cie, see in zip(
-            sub_df["Final Total (/100)"],
-            sub_df["CIE Marks (out of 50)"],
-            sub_df["Predicted SEE (/50)"]
-        )
-    ]
-    sub_df["Grade Point"] = [g[0] for g in gpa_info]
-    sub_df["Grade"] = [g[1] for g in gpa_info]
-    sub_df["Credit Points"] = sub_df["Credits"] * sub_df["Grade Point"]
-
-    total_credits = sub_df["Credits"].sum()
-    sem_sgpa = sub_df["Credit Points"].sum() / total_credits
-    new_cgpa = ((current_cgpa * completed_sems) + sem_sgpa) / (completed_sems + 1)
-    cgpa_delta = new_cgpa - current_cgpa
-    avg_total = sub_df["Final Total (/100)"].mean()
-
-    m1, m2, m3 = st
+    sub_df["Final Total (/100)"] = (sub_df["CIE Marks (out of 50)"] + sub_df["Predicted SEE (/50)"]).round(
