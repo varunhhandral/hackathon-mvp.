@@ -103,17 +103,17 @@ def render_personal_dashboard(stu=None):
         d_a2 = int(stu["Assignment 2 (/5)"]) if stu and "Assignment 2 (/5)" in stu else 4
 
         subs_init = [
-            ("Data Structures", 4, d_att, d_i1, d_i2, d_a1, d_a2, True, 44, 46, True, 42),
-            ("Operating Systems", 4, max(60, d_att-7), max(14, d_i1-11), max(15, d_i2-10), d_a1, d_a2, True, 36, 38, False, 0),
-            ("Database Systems", 4, min(100, d_att+4), min(50, d_i1+4), min(50, d_i2+4), 5, 5, True, 45, 48, True, 44),
-            ("Computer Networks", 3, max(58, d_att-9), max(12, d_i1-14), max(14, d_i2-13), 3, 3, False, 0, 0, False, 0),
-            ("Discrete Maths", 4, d_att, max(18, d_i1-4), max(18, d_i2-3), 4, 5, False, 0, 0, False, 0),
-            ("Software Engg", 3, min(100, d_att+5), min(50, d_i1+5), min(50, d_i2+5), 5, 5, False, 0, 0, False, 0)
+            ("Data Structures", 4, d_att, d_i1, d_i2, d_a1, d_a2),
+            ("Operating Systems", 4, max(60, d_att-7), max(14, d_i1-11), max(15, d_i2-10), d_a1, d_a2),
+            ("Database Systems", 4, min(100, d_att+4), min(50, d_i1+4), min(50, d_i2+4), 5, 5),
+            ("Computer Networks", 3, max(58, d_att-9), max(12, d_i1-14), max(14, d_i2-13), 3, 3),
+            ("Discrete Maths", 4, d_att, max(18, d_i1-4), max(18, d_i2-3), 4, 5),
+            ("Software Engg", 3, min(100, d_att+5), min(50, d_i1+5), min(50, d_i2+5), 5, 5)
         ]
 
         uid = stu["USN"] if stu else "default"
         rows = []
-        for i, (nm, cr, at, i1, i2, a1, a2, h_lab, li1, li2, h_ext, ext_m) in enumerate(subs_init):
+        for i, (nm, cr, at, i1, i2, a1, a2) in enumerate(subs_init):
             with st.expander(f"Subject {i+1}: {nm}", expanded=(i == 0)):
                 c_a, c_b, c_c = st.columns([2.4, 0.9, 1.7])
                 s_nm = c_a.text_input("Subject Name", nm, key=f"n_{uid}_{i}")
@@ -121,29 +121,19 @@ def render_personal_dashboard(stu=None):
                 s_at = c_c.slider("Attendance (%)", 40, 100, at, key=f"a_{uid}_{i}")
                 if only_one:
                     k1, k2 = st.columns(2)
-                    v1 = k1.number_input("Theory Int 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
+                    v1 = k1.number_input("Internal 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
                     v2 = v1
                     v3 = k2.number_input("Assign 1 (/5)", 0, 5, a1, key=f"a1_{uid}_{i}")
                     v4 = v3
                 else:
                     k1, k2, k3, k4 = st.columns(4)
-                    v1 = k1.number_input("Theory Int 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
-                    v2 = k2.number_input("Theory Int 2 (/50)", 0, 50, i2, key=f"i2_{uid}_{i}")
+                    v1 = k1.number_input("Internal 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
+                    v2 = k2.number_input("Internal 2 (/50)", 0, 50, i2, key=f"i2_{uid}_{i}")
                     v3 = k3.number_input("Assign 1 (/5)", 0, 5, a1, key=f"a1_{uid}_{i}")
                     v4 = k4.number_input("Assign 2 (/5)", 0, 5, a2, key=f"a2_{uid}_{i}")
-                has_lab = st.checkbox("Include Lab Component?", value=h_lab, key=f"hl_{uid}_{i}")
-                if has_lab:
-                    l1, l2, l3 = st.columns(3)
-                    lv1 = l1.number_input("Lab Int 1 (/50)", 0, 50, li1, key=f"li1_{uid}_{i}")
-                    lv2 = lv1 if only_one else l2.number_input("Lab Int 2 (/50)", 0, 50, li2, key=f"li2_{uid}_{i}")
-                    has_ext = l3.checkbox("External Lab?", value=h_ext, key=f"he_{uid}_{i}")
-                    ext_val = st.number_input("External Lab (/50)", 0, 50, ext_m if ext_m > 0 else 40, key=f"ex_{uid}_{i}") if has_ext else 0
-                    cie_val = round(((v1 + v2) / 100.0) * 25.0 + ((v3 + v4) / 10.0) * 5.0 + ((lv1 + lv2) / 100.0) * 20.0, 1)
-                    raw_see = float(see_model.predict([[s_at, cie_val]])[0])
-                    see_val = round((raw_see / 50.0) * 35.0 + (ext_val / 50.0) * 15.0, 1) if has_ext else round(raw_see, 1)
-                else:
-                    cie_val = round(((v1 + v2) / 100.0) * 40.0 + v3 + v4, 1)
-                    see_val = round(float(see_model.predict([[s_at, cie_val]])[0]), 1)
+
+                cie_val = round(((v1 + v2) / 100.0) * 40.0 + v3 + v4, 1)
+                see_val = round(float(see_model.predict([[s_at, cie_val]])[0]), 1)
                 tot_val = round(min(100.0, cie_val + see_val), 1)
                 st.markdown(f'<div class="score-badge">CIE: {cie_val}/50 &nbsp;|&nbsp; Predicted SEE: {see_val}/50 &nbsp;|&nbsp; Predicted Final: {tot_val}/100</div>', unsafe_allow_html=True)
                 rows.append({"Subject": s_nm, "Credits": s_cr, "Attendance (%)": s_at, "CIE (/50)": cie_val, "Predicted SEE (/50)": see_val, "Predicted Total (/100)": tot_val})
@@ -254,7 +244,7 @@ else:
         "Aptitude (/100)": np.random.randint(45, 96, ns),
         "Core Skills": [np.random.choice(skill_pools) for _ in range(ns)]
     })
-    st.download_button("Download 1,000-Student Academic & Skills Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students_placement.csv", "text/csv")
+    st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students_placement.csv", "text/csv")
 
     up = st.file_uploader("Upload CSV", type=["csv"])
     if up is not None:
