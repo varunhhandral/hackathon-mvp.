@@ -28,6 +28,7 @@ div.stButton > button {background: linear-gradient(90deg, #4f46e5, #9333ea, #db2
 .stu-id {font-size: 0.78rem; color: #64748b; margin: 2px 0 8px; font-weight: 600;}
 .stu-stat {font-size: 0.83rem; color: #334155; margin: 3px 0; font-weight: 600;}
 .tag-ok {display: inline-block; background: #dcfce7; color: #166534; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
+.tag-warn {display: inline-block; background: #fef3c7; color: #92400e; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
 .tag-risk {display: inline-block; background: #fee2e2; color: #991b1b; padding: 3px 12px; border-radius: 999px; font-size: 0.76rem; font-weight: 700; margin-top: 6px;}
 .score-badge {background: linear-gradient(90deg, #eef2ff, #fae8ff); border-left: 4px solid #8b5cf6; padding: 10px 14px; border-radius: 10px; font-weight: 700; color: #1e1b4b; font-size: 0.88rem; margin-top: 6px;}
 .profile-banner {background: linear-gradient(90deg, #eef2ff, #fdf2f8); border: 1.5px solid #c4b5fd; padding: 14px 18px; border-radius: 16px; margin-bottom: 14px;}
@@ -40,7 +41,7 @@ div.stButton > button {background: linear-gradient(90deg, #4f46e5, #9333ea, #db2
   <h1>Student Performance & Placement Insights</h1>
   <p>RNSIT Academic Predictor, Step-by-Step Score & Skill Upgrader & Faculty Teaching Co-Pilot</p>
   <span class="pill">CIE (50) + Predicted SEE (50)</span>
-  <span class="pill">Skill & Score Growth Plan</span>
+  <span class="pill">At-Risk & Backlog Tracker</span>
   <span class="pill">Faculty & Mentor Insights</span>
 </div>
 """, unsafe_allow_html=True)
@@ -74,7 +75,7 @@ def render_personal_dashboard(stu=None):
         st.markdown(f"""
         <div class="profile-banner">
           <strong style="color:#312e81;font-size:1.15rem;">360° Student Dashboard: {stu['Student Name']}</strong><br>
-          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu['USN']} &nbsp;|&nbsp; Status: {stu['Status']} &nbsp;|&nbsp; Gradual Academic & Skill Upgrade Roadmap</span>
+          <span style="color:#6d28d9;font-weight:600;font-size:0.86rem;">USN: {stu['USN']} &nbsp;|&nbsp; Status: {stu['Status']} &nbsp;|&nbsp; Prev Sem Failed Subjects: {stu.get('Prev Sem Failed Subjects', 0)}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -177,108 +178,4 @@ def render_personal_dashboard(stu=None):
         &bull; Study 3 past VTU papers per subject 3 weeks before SEE.</div>
         """, unsafe_allow_html=True)
         s_col2.markdown(f"""
-        <div class="sw-box sw-wk"><strong>2. How to Upgrade Skills Alongside College</strong><br>
-        &bull; Next Skill to Learn: <b>{missing_skills[0] if missing_skills else "System Design & Mock Interviews"}</b>.<br>
-        &bull; Daily Habit ({int(sems_completed)}/8 Sems Done): 1 hr DSA/coding + 1 hr project build.<br>
-        &bull; Turn college lab mini-projects into GitHub portfolio repos.</div>
-        """, unsafe_allow_html=True)
-
-        routine = [
-            {"Focus Area": "Academic Maintenance (Protect CIE & Pass All)", "Semesters Completed": f"{int(sems_completed)} / 8", "Concrete Weekly Action": "Revise same-day lecture notes + solve 5 VTU numericals/week"},
-            {"Focus Area": "Core Coding & Problem Solving (DSA)", "Semesters Completed": f"{int(sems_completed)} / 8", "Concrete Weekly Action": "Solve 5–7 LeetCode/GFG problems/week in Python/Java/C++"},
-            {"Focus Area": f"Skill Upgrade ({missing_skills[0] if missing_skills else 'Full-Stack / AI'})", "Semesters Completed": f"{int(sems_completed)} / 8", "Concrete Weekly Action": "Build 1 working feature/week & push to GitHub for resume proof"}
-        ]
-        st.dataframe(pd.DataFrame(routine), use_container_width=True)
-
-# Main Router: Personal Dashboard vs Batch & Faculty View
-if st.session_state.get("active_stu") is not None:
-    render_personal_dashboard(st.session_state["active_stu"])
-else:
-    main_tab1, main_tab2 = st.tabs(["1,000-Student Profiles & Cutoff Check", "Faculty & Mentor Teaching Insights"])
-
-    with main_tab1:
-        st.subheader("Batch Class Analysis (Upload CSV)")
-        min_batch_cutoff = st.slider("Set Minimum Placement CGPA Cutoff for Class:", 5.5, 8.5, 7.0, 0.25)
-
-        up = st.file_uploader("Upload CSV", type=["csv"])
-        if up is not None:
-            st.session_state["batch_csv"] = pd.read_csv(up)
-
-        if "batch_csv" in st.session_state:
-            bdf = st.session_state["batch_csv"].copy()
-            if "USN" not in bdf.columns:
-                bdf["USN"] = [f"1RN23CS{100+i}" for i in range(len(bdf))]
-            if all(k in bdf.columns for k in ["Internal 1 (/50)", "Internal 2 (/50)"]):
-                bdf["CIE (/50)"] = (((bdf["Internal 1 (/50)"] + bdf["Internal 2 (/50)"]) / 100.0) * 50.0).round(1)
-            elif "CIE (/50)" not in bdf.columns:
-                bdf["CIE (/50)"] = 35.0
-            bdf["Predicted SEE (/50)"] = see_model.predict(bdf[["Attendance (%)", "CIE (/50)"]].values).round(1)
-            bdf["Predicted Total (/100)"] = (bdf["CIE (/50)"] + bdf["Predicted SEE (/50)"]).round(1)
-            bres = [get_grade(t, c, s) for t, c, s in zip(bdf["Predicted Total (/100)"], bdf["CIE (/50)"], bdf["Predicted SEE (/50)"])]
-            bdf["SGPA"] = [r[0] for r in bres]
-            if "Core Skills" not in bdf.columns: bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
-
-            bdf["Cutoff Gap"] = (bdf["SGPA"] - min_batch_cutoff).round(2)
-            bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min Cutoff")
-            st.session_state["processed_bdf"] = bdf
-
-            eligible_cnt = int((bdf["SGPA"] >= min_batch_cutoff).sum())
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Students", len(bdf))
-            k2.metric("Min Cutoff", f"{min_batch_cutoff:.2f}")
-            k3.metric("Crossed Cutoff", f"{eligible_cnt} / {len(bdf)}")
-
-            st.subheader("Individual Student Profiles")
-            q = st.text_input("Search student name or ID", placeholder="e.g., Kavya or 1RN23CS105")
-            filtered = bdf[bdf["Student Name"].str.contains(q, case=False, na=False) | bdf["USN"].str.contains(q, case=False, na=False)] if q else bdf
-
-            grid_cols = st.columns(3)
-            for idx, (_, r) in enumerate(filtered.head(9).iterrows()):
-                initials = "".join([w[0] for w in str(r["Student Name"]).split()[:2]]).upper()
-                tag_cls = "tag-ok" if r["SGPA"] >= min_batch_cutoff else "tag-risk"
-                with grid_cols[idx % 3]:
-                    st.markdown(f"""
-                    <div class="stu-card">
-                      <div class="stu-avatar">{initials}</div>
-                      <p class="stu-name">{r['Student Name']}</p>
-                      <p class="stu-id">ID: {r['USN']}</p>
-                      <p class="stu-stat">Predicted SGPA: {r['SGPA']} / 10</p>
-                      <p class="stu-stat">Cutoff ({min_batch_cutoff}): {r['Cutoff Gap']:+.2f}</p>
-                      <span class="{tag_cls}">{r['Status']}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    if st.button("Open Personal Dashboard", key=f"open_{r['USN']}_{idx}"):
-                        st.session_state["active_stu"] = r.to_dict()
-                        st.rerun()
-        else:
-            st.divider()
-            render_personal_dashboard(None)
-
-    with main_tab2:
-        st.subheader("Engineering Faculty & Proctor Performance Co-Pilot")
-        pbdf = st.session_state.get("processed_bdf", None)
-        if pbdf is not None:
-            low_cie = int((pbdf["CIE (/50)"] < 22).sum())
-            low_att = int((pbdf["Attendance (%)"] < 75).sum())
-            f1, f2, f3 = st.columns(3)
-            f1.metric("Batch Avg CIE", f"{pbdf['CIE (/50)'].mean():.1f} / 50")
-            f2.metric("Low CIE Risk (<22)", f"{low_cie} Students")
-            f3.metric("Attendance <75%", f"{low_att} Students")
-        else:
-            st.info("Upload your student CSV in the first tab to see live batch diagnostics alongside these engineering teaching strategies.")
-
-        st.markdown("""
-        <div class="fac-card"><strong>1. Problem-First Lectures (Break the 15-Minute Rule)</strong><br>
-        Start every engineering module with a real-world system failure or industry use case before deriving equations or algorithms. Pause every 15–20 minutes for a 3-minute live code trace or GATE/VTU 2-mark problem sprint.</div>
-        <div class="fac-card"><strong>2. Early Internal-1 Proctor Intervention</strong><br>
-        Identify students scoring below 22/50 in Internal 1 or dipping below 75% attendance immediately. Group them into a 30-minute weekly bridge tutorial before Semester End Exams (SEE) rather than waiting until finals.</div>
-        <div class="fac-card"><strong>3. Align Labs & Assignments With Campus Placements</strong><br>
-        Replace repetitive record-copying with mini-problem statements, edge-case debugging, 2-minute viva defenses, and GitHub pushes—connecting OS, DBMS, CN, and DSA topics directly to technical interview questions.</div>
-        <div class="fac-card"><strong>4. Mid-Semester Anonymous 3-Question Pulse Check</strong><br>
-        Run a quick 3-question form after Internal 1 (<i>What clicked? Which module felt rushed? What should change?</i>). Acting on even one student suggestion significantly boosts classroom engagement and trust.</div>
-        """, unsafe_allow_html=True)
-
-        if pbdf is not None:
-            st.subheader("Priority Proctor Mentoring Queue")
-            at_risk_df = pbdf[(pbdf["CIE (/50)"] < 22) | (pbdf["Attendance (%)"] < 75)][["USN", "Student Name", "Attendance (%)", "CIE (/50)", "SGPA", "Status"]].head(25)
-            st.dataframe(at_risk_df, use_container_width=True)
+        <div class="
