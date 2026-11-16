@@ -22,7 +22,6 @@ div[data-baseweb="input"] input {color: #1e1b4b !important; font-weight: 600 !im
 button[data-testid="stNumberInputStepDown"], button[data-testid="stNumberInputStepUp"] {background-color: #ede9fe !important; color: #5b21b6 !important; border-radius: 8px !important;}
 div[data-testid="stFileUploaderDropzone"] {background: linear-gradient(135deg, #eef2ff, #fce7f3) !important; border: 2px dashed #a855f7 !important; border-radius: 16px !important;}
 div.stButton > button {background: linear-gradient(90deg, #4f46e5, #9333ea, #db2777); color: white; border: none; border-radius: 12px; font-weight: 700; width: 100%;}
-div.stDownloadButton > button {background: linear-gradient(90deg, #0d9488, #0284c7); color: white; border: none; border-radius: 999px; font-weight: 600;}
 .stu-card {background: rgba(255,255,255,0.96); border: 1.5px solid #e0e7ff; border-radius: 18px; padding: 16px 12px; text-align: center; box-shadow: 0 8px 20px rgba(99,102,241,0.08); margin-bottom: 8px;}
 .stu-avatar {width: 50px; height: 50px; margin: 0 auto 8px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #ec4899); color: white; font-weight: 800; font-size: 1.1rem; display: flex; align-items: center; justify-content: center;}
 .stu-name {font-size: 1.02rem; font-weight: 800; color: #1e1b4b; margin: 0;}
@@ -201,26 +200,6 @@ else:
         st.subheader("Batch Class Analysis (Upload CSV)")
         min_batch_cutoff = st.slider("Set Minimum Placement CGPA Cutoff for Class:", 5.5, 8.5, 7.0, 0.25)
 
-        np.random.seed(99)
-        ns = 1000
-        fn = ["Nandini", "Kavya", "Abhishek", "Aarav", "Diya", "Rohan", "Meera", "Kabir", "Ananya", "Vikram"]
-        ln = ["Nair", "Gowda", "Das", "Sharma", "Patel", "Reddy", "Verma", "Gupta", "Iyer", "Singh"]
-        skill_pools = [
-            "Python / Java / C++, Data Structures & Algorithms, SQL & DBMS, Full-Stack Web (React/Node)",
-            "Python / Java / C++, Machine Learning / AI, SQL & DBMS",
-            "Python / Java / C++, Full-Stack Web (React/Node), Cloud / Docker / Git, SQL & DBMS",
-            "Python / Java / C++, SQL & DBMS"
-        ]
-        samp = pd.DataFrame({
-            "Student Name": [f"{np.random.choice(fn)} {np.random.choice(ln)}" for _ in range(ns)],
-            "USN": [f"1RN23CS{100+i}" for i in range(ns)],
-            "Attendance (%)": np.random.randint(62, 100, ns),
-            "Internal 1 (/50)": np.random.randint(18, 50, ns),
-            "Internal 2 (/50)": np.random.randint(20, 50, ns),
-            "Core Skills": [np.random.choice(skill_pools) for _ in range(ns)]
-        })
-        st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students_cutoff.csv", "text/csv")
-
         up = st.file_uploader("Upload CSV", type=["csv"])
         if up is not None:
             st.session_state["batch_csv"] = pd.read_csv(up)
@@ -240,15 +219,14 @@ else:
             if "Core Skills" not in bdf.columns: bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
 
             bdf["Cutoff Gap"] = (bdf["SGPA"] - min_batch_cutoff).round(2)
-            bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Skill + Score Focus")
+            bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min Cutoff")
             st.session_state["processed_bdf"] = bdf
 
             eligible_cnt = int((bdf["SGPA"] >= min_batch_cutoff).sum())
-            k1, k2, k3, k4 = st.columns(4)
+            k1, k2, k3 = st.columns(3)
             k1.metric("Students", len(bdf))
             k2.metric("Min Cutoff", f"{min_batch_cutoff:.2f}")
             k3.metric("Crossed Cutoff", f"{eligible_cnt} / {len(bdf)}")
-            k4.metric("Skill + Score Focus", len(bdf) - eligible_cnt)
 
             st.subheader("Individual Student Profiles")
             q = st.text_input("Search student name or ID", placeholder="e.g., Kavya or 1RN23CS105")
@@ -287,7 +265,7 @@ else:
             f2.metric("Low CIE Risk (<22)", f"{low_cie} Students")
             f3.metric("Attendance <75%", f"{low_att} Students")
         else:
-            st.info("Upload your 1,000-student CSV in the first tab to see live batch diagnostics alongside these engineering teaching strategies.")
+            st.info("Upload your student CSV in the first tab to see live batch diagnostics alongside these engineering teaching strategies.")
 
         st.markdown("""
         <div class="fac-card"><strong>1. Problem-First Lectures (Break the 15-Minute Rule)</strong><br>
