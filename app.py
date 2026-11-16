@@ -17,12 +17,19 @@ html, body, [class*="css"] {font-family: 'Plus Jakarta Sans', sans-serif;}
 .hero p {margin: 8px 0 0; opacity: 0.92; font-size: 0.96rem; line-height: 1.45;}
 .pill-row {display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;}
 .pill {background: rgba(255,255,255,0.16); backdrop-filter: blur(6px); padding: 4px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 600;}
-div[data-testid="stMetric"] {background: rgba(255,255,255,0.85); backdrop-filter: blur(10px); border: 1px solid #e0e7ff; border-top: 4px solid #7c3aed; padding: 14px 16px; border-radius: 16px; box-shadow: 0 6px 18px rgba(15,23,42,0.05); transition: transform 0.2s;}
-div[data-testid="stMetric"]:hover {transform: translateY(-2px);}
-div[data-testid="stExpander"] {background: rgba(255,255,255,0.88); border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 8px;}
+div[data-testid="stMetric"] {background: rgba(255,255,255,0.88); border: 1px solid #e0e7ff; border-top: 4px solid #7c3aed; padding: 14px 16px; border-radius: 16px; box-shadow: 0 6px 18px rgba(15,23,42,0.05);}
+div[data-testid="stExpander"] {background: rgba(255,255,255,0.92); border-radius: 16px; border: 1.5px solid #ddd6fe; box-shadow: 0 6px 16px rgba(109,40,217,0.06); margin-bottom: 10px; overflow: hidden;}
+div[data-testid="stExpander"] summary {background: linear-gradient(90deg, #f5f3ff, #fdf2f8); padding: 10px 14px; font-weight: 700; color: #312e81;}
+div[data-baseweb="input"], div[data-baseweb="base-input"] {background: linear-gradient(135deg, #f5f3ff 0%, #fdf4ff 100%) !important; border: 1.5px solid #c4b5fd !important; border-radius: 11px !important; transition: all 0.2s ease;}
+div[data-baseweb="input"]:focus-within, div[data-baseweb="base-input"]:focus-within {border-color: #db2777 !important; box-shadow: 0 0 0 3px rgba(219,39,119,0.18) !important; background: #ffffff !important;}
+div[data-baseweb="input"] input {color: #1e1b4b !important; font-weight: 600 !important;}
+button[data-testid="stNumberInputStepDown"], button[data-testid="stNumberInputStepUp"] {background-color: #ede9fe !important; color: #5b21b6 !important; border-radius: 8px !important; margin: 2px !important;}
+button[data-testid="stNumberInputStepDown"]:hover, button[data-testid="stNumberInputStepUp"]:hover {background-color: #7c3aed !important; color: white !important;}
+div[data-testid="stFileUploaderDropzone"] {background: linear-gradient(135deg, #eef2ff, #fce7f3) !important; border: 2px dashed #a855f7 !important; border-radius: 16px !important;}
+div[data-baseweb="select"] > div {background: linear-gradient(135deg, #f5f3ff, #fdf4ff) !important; border: 1.5px solid #c4b5fd !important; border-radius: 11px !important;}
 div.stButton > button {background: linear-gradient(90deg, #4f46e5, #9333ea, #db2777); color: white; border: none; border-radius: 999px; font-weight: 700; padding: 0.6rem 1.6rem; box-shadow: 0 6px 16px rgba(147,51,234,0.28); width: 100%;}
 div.stDownloadButton > button {background: linear-gradient(90deg, #0d9488, #0284c7); color: white; border: none; border-radius: 999px; font-weight: 600; padding: 0.5rem 1.4rem;}
-.score-badge {background: linear-gradient(90deg, #eef2ff, #fae8ff); border-left: 4px solid #8b5cf6; padding: 10px 14px; border-radius: 10px; font-weight: 600; color: #1e1b4b; font-size: 0.9rem; margin-top: 6px;}
+.score-badge {background: linear-gradient(90deg, #eef2ff, #fae8ff); border-left: 4px solid #8b5cf6; padding: 10px 14px; border-radius: 10px; font-weight: 700; color: #1e1b4b; font-size: 0.9rem; margin-top: 6px;}
 </style>
 <div class="hero">
   <h1>Student Performance Insights</h1>
@@ -51,138 +58,4 @@ def style_grade(val):
               "A": "background-color:#dbeafe;color:#1e40af;font-weight:bold", "B+": "background-color:#e0e7ff;color:#3730a3",
               "B": "background-color:#fef3c7;color:#92400e", "C": "background-color:#ffedd5;color:#9a3412",
               "P": "background-color:#f3f4f6;color:#374151", "F": "background-color:#fee2e2;color:#991b1b;font-weight:bold",
-              "At Risk": "background-color:#fee2e2;color:#991b1b;font-weight:bold", "On Track": "background-color:#dcfce7;color:#166534;font-weight:bold"}
-    return colors.get(val, "")
-
-np.random.seed(42)
-n = 300
-att = np.random.randint(55, 100, n)
-cie = np.random.uniform(18, 50, n)
-sem_ex = np.random.randint(35, 98, n)
-tot_y = np.clip(cie + (sem_ex * 0.45) + (att * 0.05) + np.random.normal(0, 1.5, n), 0, 100)
-
-cols = ["Attendance (%)", "CIE Marks (/50)", "This Sem Exam (/100)"]
-df = pd.DataFrame({cols[0]: att, cols[1]: cie, cols[2]: sem_ex, "Total": tot_y})
-X_tr, X_te, y_tr, y_te = train_test_split(df[cols], df["Total"], test_size=0.2, random_state=42)
-model = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_tr, y_tr)
-preds = model.predict(X_te)
-
-st.subheader("Model Performance & Key Drivers")
-c1, c2 = st.columns(2)
-c1.metric("Total Score MAE", f"{mean_absolute_error(y_te, preds):.2f} / 100")
-c2.metric("R2 Accuracy", f"{r2_score(y_te, preds):.2f}")
-imp = pd.DataFrame({"Factor": cols, "Impact": model.feature_importances_}).sort_values("Impact")
-st.bar_chart(imp.set_index("Factor"), color="#8b5cf6")
-st.divider()
-
-st.subheader("6-Subject Semester Evaluation & CGPA")
-g1, g2 = st.columns(2)
-curr_cgpa = g1.number_input("Current CGPA (/10)", 0.0, 10.0, 7.65, 0.05)
-comp_sems = g2.number_input("Completed Semesters", 1, 8, 3, 1)
-
-subs_init = [
-    ("Data Structures", 4, 86, 41, 43, 5, 4, 78, True, 44, 46, True, 42),
-    ("Operating Systems", 4, 74, 26, 28, 4, 3, 64, True, 38, 40, False, 0),
-    ("Database Systems", 4, 90, 44, 46, 5, 5, 84, True, 45, 48, True, 44),
-    ("Computer Networks", 3, 70, 22, 24, 3, 3, 58, False, 0, 0, False, 0),
-    ("Discrete Maths", 4, 82, 36, 38, 4, 5, 74, False, 0, 0, False, 0),
-    ("Software Engg", 3, 92, 45, 47, 5, 5, 86, False, 0, 0, False, 0)
-]
-
-rows = []
-for i, (nm, cr, at, i1, i2, a1, a2, ts, h_lab, li1, li2, h_ext, ext_m) in enumerate(subs_init):
-    with st.expander(f"Subject {i+1}: {nm}", expanded=(i == 0)):
-        c_a, c_b = st.columns([3, 1])
-        s_nm = c_a.text_input("Subject Name (Editable)", nm, key=f"n{i}")
-        s_cr = c_b.number_input("Credits", 1, 6, cr, key=f"c{i}")
-        c_c, c_d = st.columns(2)
-        s_at = c_c.slider("Attendance (%)", 40, 100, at, key=f"a{i}")
-        s_ts = c_d.number_input("This Sem Exam Final (/100)", 0, 100, ts, key=f"ts{i}")
-        k1, k2, k3, k4 = st.columns(4)
-        v1 = k1.number_input("Theory Int 1 (/50)", 0, 50, i1, key=f"i1{i}")
-        v2 = k2.number_input("Theory Int 2 (/50)", 0, 50, i2, key=f"i2{i}")
-        v3 = k3.number_input("Assign 1 (/5)", 0, 5, a1, key=f"a1{i}")
-        v4 = k4.number_input("Assign 2 (/5)", 0, 5, a2, key=f"a2{i}")
-        has_lab = st.checkbox("Include Lab Component for this Subject?", value=h_lab, key=f"hl{i}")
-        if has_lab:
-            l1, l2, l3 = st.columns(3)
-            lv1 = l1.number_input("Lab Int 1 (/50)", 0, 50, li1, key=f"li1{i}")
-            lv2 = l2.number_input("Lab Int 2 (/50)", 0, 50, li2, key=f"li2{i}")
-            has_ext = l3.checkbox("External Lab Exam?", value=h_ext, key=f"he{i}")
-            ext_val = st.number_input("External Lab Marks (/50)", 0, 50, ext_m if ext_m > 0 else 40, key=f"ex{i}") if has_ext else 0
-            cie_val = round(((v1 + v2) / 100.0) * 25.0 + ((v3 + v4) / 10.0) * 5.0 + ((lv1 + lv2) / 100.0) * 20.0, 1)
-            see_val = round((s_ts / 100.0) * 35.0 + (ext_val / 50.0) * 15.0, 1) if has_ext else round(s_ts * 0.5, 1)
-        else:
-            cie_val = round(((v1 + v2) / 100.0) * 40.0 + v3 + v4, 1)
-            see_val = round(s_ts * 0.5, 1)
-        tot_val = round(cie_val + see_val, 1)
-        st.markdown(f'<div class="score-badge">Scaled CIE: {cie_val}/50 &nbsp;|&nbsp; Scaled SEE: {see_val}/50 &nbsp;|&nbsp; Final Total: {tot_val}/100</div>', unsafe_allow_html=True)
-        rows.append({"Subject": s_nm, "Credits": s_cr, cols[0]: s_at, cols[1]: cie_val, cols[2]: s_ts, "SEE (/50)": see_val, "Final Total (/100)": tot_val})
-
-if st.button("Calculate Final Marks, SGPA & CGPA"):
-    sdf = pd.DataFrame(rows)
-    res = [get_grade(t, c, s) for t, c, s in zip(sdf["Final Total (/100)"], sdf[cols[1]], sdf["SEE (/50)"])]
-    sdf["GP"] = [r[0] for r in res]
-    sdf["Grade"] = [r[1] for r in res]
-    sgpa = (sdf["Credits"] * sdf["GP"]).sum() / sdf["Credits"].sum()
-    ncgpa = ((curr_cgpa * comp_sems) + sgpa) / (comp_sems + 1)
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Avg Total", f"{sdf['Final Total (/100)'].mean():.1f} / 100")
-    m2.metric("Semester SGPA", f"{sgpa:.2f} / 10")
-    m3.metric("Projected CGPA", f"{ncgpa:.2f} / 10", f"{ncgpa - curr_cgpa:+.2f}")
-    show_s = sdf[["Subject", "Credits", cols[1], "SEE (/50)", "Final Total (/100)", "Grade", "GP"]]
-    st.dataframe(show_s.style.map(style_grade, subset=["Grade"]), use_container_width=True)
-    bad_cie = sdf[sdf[cols[1]] < 20]["Subject"].tolist()
-    bad_att = sdf[sdf[cols[0]] < 75]["Subject"].tolist()
-    if bad_cie: st.error(f"CIE Shortage (<20/50): {', '.join(bad_cie)}")
-    if bad_att: st.warning(f"Attendance Shortage (<75%): {', '.join(bad_att)}")
-    if not bad_cie and not bad_att: st.success("All 6 subjects cleared RNSIT CIE & Attendance rules!")
-
-st.divider()
-st.subheader("Batch Class Analysis (Upload CSV)")
-np.random.seed(99)
-ns = 1000
-fn = ["Aarav", "Diya", "Rohan", "Meera", "Kabir", "Ananya", "Vikram", "Priya", "Arjun", "Sneha"]
-ln = ["Sharma", "Patel", "Reddy", "Nair", "Verma", "Gupta", "Iyer", "Singh", "Kumar", "Joshi"]
-samp = pd.DataFrame({
-    "Student Name": [f"{np.random.choice(fn)} {np.random.choice(ln)} (1RN23CS{100+i})" for i in range(ns)],
-    "Attendance (%)": np.random.randint(52, 100, ns),
-    "Internal 1 (/50)": np.random.randint(14, 50, ns),
-    "Internal 2 (/50)": np.random.randint(15, 50, ns),
-    "Assignment 1 (/5)": np.random.randint(2, 6, ns),
-    "Assignment 2 (/5)": np.random.randint(2, 6, ns),
-    "This Sem Exam (/100)": np.random.randint(35, 98, ns),
-    "Previous CGPA": np.round(np.random.uniform(5.4, 9.6, ns), 2)
-})
-st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students.csv", "text/csv")
-
-up = st.file_uploader("Upload CSV", type=["csv"])
-if up:
-    bdf = pd.read_csv(up)
-    if "Last Sem Exam (/100)" in bdf.columns and cols[2] not in bdf.columns:
-        bdf = bdf.rename(columns={"Last Sem Exam (/100)": cols[2]})
-    if all(k in bdf.columns for k in ["Internal 1 (/50)", "Internal 2 (/50)", "Assignment 1 (/5)", "Assignment 2 (/5)"]):
-        bdf[cols[1]] = (((bdf["Internal 1 (/50)"] + bdf["Internal 2 (/50)"]) / 100.0) * 40.0 + bdf["Assignment 1 (/5)"] + bdf["Assignment 2 (/5)"]).round(1)
-    bdf["SEE (/50)"] = (bdf[cols[2]] * 0.5).round(1)
-    bdf["Final Total (/100)"] = (bdf[cols[1]] + bdf["SEE (/50)"]).round(1)
-    bres = [get_grade(t, c, s) for t, c, s in zip(bdf["Final Total (/100)"], bdf[cols[1]], bdf["SEE (/50)"])]
-    bdf["SGPA"] = [r[0] for r in bres]
-    bdf["Grade"] = [r[1] for r in bres]
-    base_c = bdf["Previous CGPA"] if "Previous CGPA" in bdf.columns else (bdf[cols[2]] / 10.0)
-    bdf["Projected CGPA"] = (((base_c * 3) + bdf["SGPA"]) / 4).round(2)
-    bdf["Risk"] = np.where((bdf[cols[1]] < 20) | (bdf[cols[0]] < 75) | (bdf["Final Total (/100)"] < 45), "At Risk", "On Track")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Students", len(bdf))
-    k2.metric("Avg Total", f"{bdf['Final Total (/100)'].mean():.1f}")
-    k3.metric("Avg CGPA", f"{bdf['Projected CGPA'].mean():.2f}")
-    k4.metric("At Risk", int((bdf["Risk"] == "At Risk").sum()))
-    st.bar_chart(pd.cut(bdf["Final Total (/100)"], [0, 40, 60, 75, 100], labels=["Fail", "Second", "First", "FCD"]).value_counts(), color="#db2777")
-    flt = st.radio("Filter:", ["All", "At-Risk Only"], horizontal=True)
-    disp = bdf[bdf["Risk"] == "At Risk"] if flt == "At-Risk Only" else bdf
-    st.dataframe(disp.style.map(style_grade, subset=["Grade", "Risk"]), use_container_width=True)
-    st.download_button("Download Report (CSV)", bdf.to_csv(index=False).encode(), "rnsit_report.csv", "text/csv")
-    if "Student Name" in bdf.columns:
-        sel = st.selectbox("Mentor Action Plan for:", bdf["Student Name"].head(100))
-        sr = bdf[bdf["Student Name"] == sel].iloc[0]
-        tgt = st.slider("Target Score (/100)", 45, 95, 75)
-        st.text_area("Proctor Summary", f"Student: {sel}\nCIE: {sr[cols[1]]}/50 | SEE: {sr['SEE (/50)']}/50 | Total: {sr['Final Total (/100)']}/100\nSGPA: {sr['SGPA']} | Projected CGPA: {sr['Projected CGPA']} ({sr['Risk']})\nGoal Gap: +{max(0.0, tgt - sr['Final Total (/100)']):.1f} marks needed.", height=175)
+              "At Risk": "background-color:#fee2e2;color:#991b1b;font-weight:bold", "On Track": "background-color:#dcfce7;color:#166534;font-weight:bold
