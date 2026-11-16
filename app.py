@@ -8,7 +8,24 @@ from sklearn.metrics import mean_absolute_error, r2_score
 # Page Configuration
 st.set_page_config(page_title="Student Performance Insights", layout="centered")
 st.title("Student Performance Insights")
-st.markdown("Predict student exam outcomes, identify root causes for at-risk learners, and generate 30-day intervention plans.")
+st.markdown("Predict student exam outcomes, calculate GPA & CGPA impact, and generate 30-day intervention plans.")
+
+# Helper function: Convert 0-100 score to 10-point GPA & Letter Grade
+def get_gpa_and_grade(score):
+    if score >= 90:
+        return 10.0, "O (Outstanding)"
+    elif score >= 80:
+        return 9.0, "A+ (Excellent)"
+    elif score >= 70:
+        return 8.0, "A (Very Good)"
+    elif score >= 60:
+        return 7.0, "B+ (Good)"
+    elif score >= 55:
+        return 6.0, "B (Above Average)"
+    elif score >= 50:
+        return 5.0, "C (Average)"
+    else:
+        return 0.0, "F (Fail)"
 
 # 1. Generate realistic training dataset (250 records)
 np.random.seed(42)
@@ -54,17 +71,27 @@ st.bar_chart(importance_df.set_index("Factor"))
 
 st.divider()
 
-# 4. Interactive Single-Student Simulator
-st.subheader("Simulate Individual Student Outcome")
+# 4. Interactive Single-Student Simulator + GPA & CGPA Calculator
+st.subheader("Simulate Individual Student Outcome & CGPA")
 in_attendance = st.slider("Attendance (%)", min_value=40, max_value=100, value=78)
 in_prev = st.number_input("Previous Exam Score (out of 100)", min_value=0, max_value=100, value=68)
 in_assign = st.slider("Assignment Completion (%)", min_value=0, max_value=100, value=85)
 
-if st.button("Analyze Performance"):
+c_gpa1, c_gpa2 = st.columns(2)
+current_cgpa = c_gpa1.number_input("Current CGPA (out of 10)", min_value=0.0, max_value=10.0, value=7.4, step=0.1)
+completed_sems = c_gpa2.number_input("Completed Semesters", min_value=1, max_value=8, value=3, step=1)
+
+if st.button("Analyze Performance & CGPA"):
     input_data = pd.DataFrame([[in_attendance, in_prev, in_assign]], columns=feature_cols)
     predicted_score = model.predict(input_data)[0]
+    pred_gpa, letter_grade = get_gpa_and_grade(predicted_score)
+    new_cgpa = ((current_cgpa * completed_sems) + pred_gpa) / (completed_sems + 1)
+    cgpa_delta = new_cgpa - current_cgpa
 
-    st.success(f"Predicted Final Exam Score: {predicted_score:.1f} / 100")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Predicted Score", f"{predicted_score:.1f} / 100", letter_grade)
+    m2.metric("Predicted SGPA", f"{pred_gpa:.1f} / 10")
+    m3.metric("Projected CGPA", f"{new_cgpa:.2f} / 10", f"{cgpa_delta:+.2f}")
 
     st.subheader("Recommended Actions")
     if in_attendance < 75:
@@ -79,9 +106,9 @@ if st.button("Analyze Performance"):
 
 st.divider()
 
-# 5. Batch Class Analysis (CSV Upload + Smart Column Mapper)
+# 5. Batch Class Analysis (CSV Upload + Smart Column Mapper + GPA/CGPA)
 st.subheader("Batch Class Analysis (Upload CSV)")
-st.markdown("Upload any student roster CSV to predict scores, visualize class distribution, and generate intervention plans.")
+st.markdown("Upload any student roster CSV to predict scores, compute SGPA & CGPA, and generate intervention plans.")
 
 np.random.seed(99)
 n_sample = 1000
@@ -96,7 +123,8 @@ sample_df = pd.DataFrame({
     "Student Name": student_names,
     "Attendance (%)": np.random.randint(48, 100, n_sample),
     "Previous Exam Score": np.random.randint(35, 99, n_sample),
-    "Assignment Completion (%)": np.random.randint(45, 100, n_sample)
+    "Assignment Completion (%)": np.random.randint(45, 100, n_sample),
+    "Previous CGPA": np.round(np.random.uniform(5.2, 9.6, n_sample), 2)
 })
 
 st.download_button(
@@ -126,8 +154,20 @@ if uploaded_file is not None:
             map_assign: "Assignment Completion (%)"
         })
 
-    # Run Predictions & Root-Cause Tagging
+    # Run Predictions, GPA/CGPA & Root-Cause Tagging
     batch_df["Predicted Final Score"] = model.predict(batch_df[feature_cols]).round(1)
+    gpa_results = batch_df["Predicted Final Score"].apply(get_gpa_and_grade)
+    batch_df["Predicted SGPA"] = [res[0] for res in gpa_results]
+    batch_df["Grade"] = [res[1].split(" ")[0] for res in gpa_results]
+
+    # Calculate Updated CGPA (uses Previous CGPA column if available, otherwise estimates from Previous Exam Score)
+    if "Previous CGPA" in batch_df.columns:
+        base_cgpa = batch_df["Previous CGPA"]
+    else:
+        base_cgpa = (batch_df["Previous Exam Score"] / 10.0).round(2)
+
+    batch_df["Projected CGPA"] = (((base_cgpa * 3) + batch_df["Predicted SGPA"]) / 4).round(2)
+
     batch_df["Risk Status"] = np.where(
         (batch_df["Predicted Final Score"] < 55) | (batch_df["Attendance (%)"] < 75),
         "At Risk",
@@ -149,10 +189,11 @@ if uploaded_file is not None:
 
     # Class Summary KPIs
     at_risk_count = (batch_df["Risk Status"] == "At Risk").sum()
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Students", len(batch_df))
     c2.metric("Class Avg Score", f"{batch_df['Predicted Final Score'].mean():.1f}")
-    c3.metric("At-Risk Students", f"{at_risk_count}")
+    c3.metric("Avg Class CGPA", f"{batch_df['Projected CGPA'].mean():.2f}")
+    c4.metric("At-Risk Students", f"{at_risk_count}")
 
     # Visual Grade Distribution Chart
     bins = [0, 50, 75, 100]
@@ -192,12 +233,12 @@ if uploaded_file is not None:
         "Ready-to-Send Mentor / Parent Summary",
         value=(
             f"Student: {selected_student}\n"
-            f"Current Predicted Score: {s_row['Predicted Final Score']}/100 ({s_row['Risk Status']})\n"
+            f"Current Predicted Score: {s_row['Predicted Final Score']}/100 | SGPA: {s_row['Predicted SGPA']} | Projected CGPA: {s_row['Projected CGPA']} ({s_row['Risk Status']})\n"
             f"Primary Risk Factor: {s_row['Primary Risk Factor']}\n\n"
             f"Recommended 30-Day Action Plan to reach {target_score}/100:\n"
             f"1. Target attendance of {max(80, attendance_boost)}% (Currently: {s_row['Attendance (%)']}%).\n"
             f"2. Complete pending coursework to reach 90%+ assignment completion (Currently: {s_row['Assignment Completion (%)']}%).\n"
             f"3. Schedule weekly mentor revision check-ins to bridge the {gap:.1f}-mark gap."
         ),
-        height=195
+        height=205
     )
