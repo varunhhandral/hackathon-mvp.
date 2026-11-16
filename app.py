@@ -14,25 +14,23 @@ st.markdown("Predict student exam outcomes, identify root causes for at-risk lea
 np.random.seed(42)
 n_students = 250
 attendance = np.random.randint(50, 100, n_students)
-study_hours = np.random.randint(2, 25, n_students)
 prev_score = np.random.randint(40, 98, n_students)
 assignments = np.random.randint(50, 100, n_students)
 
 final_score = np.clip(
-    0.30 * attendance + 1.10 * study_hours + 0.40 * prev_score + 0.15 * assignments + np.random.normal(0, 3, n_students),
+    0.35 * attendance + 0.45 * prev_score + 0.20 * assignments + np.random.normal(0, 3, n_students),
     0, 100
 )
 
 df = pd.DataFrame({
     "Attendance (%)": attendance,
-    "Weekly Study Hours": study_hours,
     "Previous Exam Score": prev_score,
     "Assignment Completion (%)": assignments,
     "Final Score": final_score
 })
 
 # 2. Train Model & Calculate Metrics
-feature_cols = ["Attendance (%)", "Weekly Study Hours", "Previous Exam Score", "Assignment Completion (%)"]
+feature_cols = ["Attendance (%)", "Previous Exam Score", "Assignment Completion (%)"]
 X = df[feature_cols]
 y = df["Final Score"]
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -59,12 +57,11 @@ st.divider()
 # 4. Interactive Single-Student Simulator
 st.subheader("Simulate Individual Student Outcome")
 in_attendance = st.slider("Attendance (%)", min_value=40, max_value=100, value=78)
-in_study = st.slider("Weekly Study Hours", min_value=0, max_value=30, value=10)
 in_prev = st.number_input("Previous Exam Score (out of 100)", min_value=0, max_value=100, value=68)
 in_assign = st.slider("Assignment Completion (%)", min_value=0, max_value=100, value=85)
 
 if st.button("Analyze Performance"):
-    input_data = pd.DataFrame([[in_attendance, in_study, in_prev, in_assign]], columns=feature_cols)
+    input_data = pd.DataFrame([[in_attendance, in_prev, in_assign]], columns=feature_cols)
     predicted_score = model.predict(input_data)[0]
 
     st.success(f"Predicted Final Exam Score: {predicted_score:.1f} / 100")
@@ -72,8 +69,8 @@ if st.button("Analyze Performance"):
     st.subheader("Recommended Actions")
     if in_attendance < 75:
         st.warning("Attendance Alert: Below the 75% minimum requirement. Schedule a faculty mentor check-in.")
-    if in_study < 8:
-        st.info("Study Plan: Increasing weekly self-study to 12+ hours can boost the predicted score by ~5-8 marks.")
+    if in_assign < 70:
+        st.info("Coursework Plan: Raising assignment completion above 85% can recover ~4-6 marks.")
     if predicted_score < 50:
         st.error("High Academic Risk: Recommend peer tutoring and remedial weekend sessions.")
     elif predicted_score >= 85:
@@ -98,7 +95,6 @@ student_names = [f"{np.random.choice(first_names)} {np.random.choice(last_names)
 sample_df = pd.DataFrame({
     "Student Name": student_names,
     "Attendance (%)": np.random.randint(48, 100, n_sample),
-    "Weekly Study Hours": np.random.randint(1, 26, n_sample),
     "Previous Exam Score": np.random.randint(35, 99, n_sample),
     "Assignment Completion (%)": np.random.randint(45, 100, n_sample)
 })
@@ -119,15 +115,13 @@ if uploaded_file is not None:
     if not all(col in batch_df.columns for col in feature_cols):
         st.info("Custom CSV detected. Map your columns to the model inputs below:")
         cols = list(batch_df.columns)
-        m1, m2 = st.columns(2)
+        m1, m2, m3 = st.columns(3)
         map_att = m1.selectbox("Attendance Column", cols, index=0)
-        map_study = m2.selectbox("Study Hours Column", cols, index=min(1, len(cols) - 1))
-        map_prev = m1.selectbox("Previous Score Column", cols, index=min(2, len(cols) - 1))
-        map_assign = m2.selectbox("Assignments Column", cols, index=min(3, len(cols) - 1))
+        map_prev = m2.selectbox("Previous Score Column", cols, index=min(1, len(cols) - 1))
+        map_assign = m3.selectbox("Assignments Column", cols, index=min(2, len(cols) - 1))
 
         batch_df = batch_df.rename(columns={
             map_att: "Attendance (%)",
-            map_study: "Weekly Study Hours",
             map_prev: "Previous Exam Score",
             map_assign: "Assignment Completion (%)"
         })
@@ -143,8 +137,6 @@ if uploaded_file is not None:
     def get_primary_risk(row):
         if row["Attendance (%)"] < 75:
             return "Low Attendance (<75%)"
-        elif row["Weekly Study Hours"] < 6:
-            return "Low Study Hours (<6h)"
         elif row["Previous Exam Score"] < 55:
             return "Weak Foundation (<55)"
         elif row["Assignment Completion (%)"] < 65:
@@ -194,7 +186,7 @@ if uploaded_file is not None:
 
     target_score = st.slider("Target Score Goal", min_value=50, max_value=95, value=75)
     gap = max(0.0, target_score - s_row["Predicted Final Score"])
-    extra_hours = round(gap / 1.1, 1)
+    attendance_boost = min(100, int(s_row["Attendance (%)"] + round(gap / 0.35)))
 
     st.text_area(
         "Ready-to-Send Mentor / Parent Summary",
@@ -203,9 +195,9 @@ if uploaded_file is not None:
             f"Current Predicted Score: {s_row['Predicted Final Score']}/100 ({s_row['Risk Status']})\n"
             f"Primary Risk Factor: {s_row['Primary Risk Factor']}\n\n"
             f"Recommended 30-Day Action Plan to reach {target_score}/100:\n"
-            f"1. Maintain attendance above 80% (Currently: {s_row['Attendance (%)']}%).\n"
-            f"2. Add +{extra_hours} weekly self-study hours (Currently: {s_row['Weekly Study Hours']} hrs/wk).\n"
-            f"3. Complete pending coursework to reach 90%+ assignment completion (Currently: {s_row['Assignment Completion (%)']}%)."
+            f"1. Target attendance of {max(80, attendance_boost)}% (Currently: {s_row['Attendance (%)']}%).\n"
+            f"2. Complete pending coursework to reach 90%+ assignment completion (Currently: {s_row['Assignment Completion (%)']}%).\n"
+            f"3. Schedule weekly mentor revision check-ins to bridge the {gap:.1f}-mark gap."
         ),
         height=195
     )
