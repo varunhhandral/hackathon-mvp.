@@ -81,49 +81,39 @@ def render_personal_dashboard(stu=None):
     tab_acad, tab_place = st.tabs(["Academics & Study Planner", "Min CGPA Cutoff & Placement Skills"])
 
     with tab_acad:
-        g1, g2, g3 = st.columns([1, 1, 1.3])
-        curr_cgpa = g1.number_input("Current CGPA (/10)", 0.0, 10.0, float(stu["Previous CGPA"]) if stu and "Previous CGPA" in stu else 7.65, 0.05)
-        comp_sems = g2.number_input("Completed Semesters", 1, 8, 5, 1)
-        eval_mode = g3.radio("Internals Completed:", ["Both Internals (1 & 2)", "Only 1st Internal"])
+        eval_mode = st.radio("Internals Completed:", ["Both Internals (1 & 2)", "Only 1st Internal"], horizontal=True)
         only_one = (eval_mode == "Only 1st Internal")
 
         d_att = int(stu["Attendance (%)"]) if stu else 84
         d_i1 = int(stu["Internal 1 (/50)"]) if stu and "Internal 1 (/50)" in stu else 41
         d_i2 = int(stu["Internal 2 (/50)"]) if stu and "Internal 2 (/50)" in stu else 39
-        d_a1 = int(stu["Assignment 1 (/5)"]) if stu and "Assignment 1 (/5)" in stu else 5
-        d_a2 = int(stu["Assignment 2 (/5)"]) if stu and "Assignment 2 (/5)" in stu else 4
 
         subs_init = [
-            ("Data Structures", 4, d_att, d_i1, d_i2, d_a1, d_a2),
-            ("Operating Systems", 4, max(60, d_att-7), max(14, d_i1-11), max(15, d_i2-10), d_a1, d_a2),
-            ("Database Systems", 4, min(100, d_att+4), min(50, d_i1+4), min(50, d_i2+4), 5, 5),
-            ("Computer Networks", 3, max(58, d_att-9), max(12, d_i1-14), max(14, d_i2-13), 3, 3),
-            ("Discrete Maths", 4, d_att, max(18, d_i1-4), max(18, d_i2-3), 4, 5),
-            ("Software Engg", 3, min(100, d_att+5), min(50, d_i1+5), min(50, d_i2+5), 5, 5)
+            ("Data Structures", 4, d_att, d_i1, d_i2),
+            ("Operating Systems", 4, max(60, d_att-7), max(14, d_i1-11), max(15, d_i2-10)),
+            ("Database Systems", 4, min(100, d_att+4), min(50, d_i1+4), min(50, d_i2+4)),
+            ("Computer Networks", 3, max(58, d_att-9), max(12, d_i1-14), max(14, d_i2-13)),
+            ("Discrete Maths", 4, d_att, max(18, d_i1-4), max(18, d_i2-3)),
+            ("Software Engg", 3, min(100, d_att+5), min(50, d_i1+5), min(50, d_i2+5))
         ]
 
         uid = stu["USN"] if stu else "default"
         rows = []
-        for i, (nm, cr, at, i1, i2, a1, a2) in enumerate(subs_init):
+        for i, (nm, cr, at, i1, i2) in enumerate(subs_init):
             with st.expander(f"Subject {i+1}: {nm}", expanded=(i == 0)):
                 c_a, c_b, c_c = st.columns([2.4, 0.9, 1.7])
                 s_nm = c_a.text_input("Subject Name", nm, key=f"n_{uid}_{i}")
                 s_cr = c_b.number_input("Credits", 1, 6, cr, key=f"c_{uid}_{i}")
                 s_at = c_c.slider("Attendance (%)", 40, 100, at, key=f"a_{uid}_{i}")
                 if only_one:
+                    v1 = st.number_input("Internal 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
+                    v2 = v1
+                else:
                     k1, k2 = st.columns(2)
                     v1 = k1.number_input("Internal 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
-                    v2 = v1
-                    v3 = k2.number_input("Assign 1 (/5)", 0, 5, a1, key=f"a1_{uid}_{i}")
-                    v4 = v3
-                else:
-                    k1, k2, k3, k4 = st.columns(4)
-                    v1 = k1.number_input("Internal 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
                     v2 = k2.number_input("Internal 2 (/50)", 0, 50, i2, key=f"i2_{uid}_{i}")
-                    v3 = k3.number_input("Assign 1 (/5)", 0, 5, a1, key=f"a1_{uid}_{i}")
-                    v4 = k4.number_input("Assign 2 (/5)", 0, 5, a2, key=f"a2_{uid}_{i}")
 
-                cie_val = round(((v1 + v2) / 100.0) * 40.0 + v3 + v4, 1)
+                cie_val = round(((v1 + v2) / 100.0) * 50.0, 1)
                 see_val = round(float(see_model.predict([[s_at, cie_val]])[0]), 1)
                 tot_val = round(min(100.0, cie_val + see_val), 1)
                 st.markdown(f'<div class="score-badge">CIE: {cie_val}/50 &nbsp;|&nbsp; Predicted SEE: {see_val}/50 &nbsp;|&nbsp; Predicted Final: {tot_val}/100</div>', unsafe_allow_html=True)
@@ -135,13 +125,11 @@ def render_personal_dashboard(stu=None):
             sdf["GP"] = [r[0] for r in res]
             sdf["Grade"] = [r[1] for r in res]
             sgpa = (sdf["Credits"] * sdf["GP"]).sum() / sdf["Credits"].sum()
-            ncgpa = ((curr_cgpa * comp_sems) + sgpa) / (comp_sems + 1)
-            st.session_state["proj_cgpa"] = round(ncgpa, 2)
-            st.session_state["comp_sems"] = int(comp_sems)
+            st.session_state["calc_sgpa"] = round(sgpa, 2)
             m1, m2, m3 = st.columns(3)
             m1.metric("Predicted Avg", f"{sdf['Predicted Total (/100)'].mean():.1f} / 100")
             m2.metric("Predicted SGPA", f"{sgpa:.2f} / 10")
-            m3.metric("Projected CGPA", f"{ncgpa:.2f} / 10", f"{ncgpa - curr_cgpa:+.2f}")
+            m3.metric("Subjects Passed", f"{int((sdf['Grade'] != 'F').sum())} / 6")
             st.dataframe(sdf[["Subject", "Credits", "CIE (/50)", "Predicted SEE (/50)", "Predicted Total (/100)", "Grade", "GP"]].style.map(style_grade, subset=["Grade"]), use_container_width=True)
             strengths = sdf[sdf["Predicted Total (/100)"] >= 75]["Subject"].tolist()
             weaknesses = sdf[(sdf["Predicted Total (/100)"] < 60) | (sdf["CIE (/50)"] < 22)]["Subject"].tolist()
@@ -154,17 +142,15 @@ def render_personal_dashboard(stu=None):
     with tab_place:
         st.subheader("Minimum CGPA Placement Eligibility & Skills")
         uid_p = stu["USN"] if stu else "def_p"
-        default_cgpa = st.session_state.get("proj_cgpa", float(stu["Projected CGPA"]) if stu and "Projected CGPA" in stu else 6.85)
-        default_sems = st.session_state.get("comp_sems", 5)
+        stu_sgpa = st.session_state.get("calc_sgpa", float(stu["SGPA"]) if stu and "SGPA" in stu else 7.50)
 
-        p1, p2, p3 = st.columns(3)
-        pl_cgpa = p1.number_input("Current / Projected CGPA", 0.0, 10.0, float(default_cgpa), 0.05, key=f"pcg_{uid_p}")
-        min_cutoff = p2.number_input("Min Placement CGPA Cutoff", 5.0, 9.5, 7.0, 0.25, key=f"pcut_{uid_p}")
-        sems_done = p3.number_input("Semesters Completed", 1, 7, int(default_sems), 1, key=f"psem_{uid_p}")
+        p1, p2 = st.columns(2)
+        min_cutoff = p1.number_input("Min Placement CGPA Cutoff", 5.0, 9.5, 7.0, 0.25, key=f"pcut_{uid_p}")
+        sems_done = p2.number_input("Semesters Completed", 1, 7, 5, 1, key=f"psem_{uid_p}")
 
         rem_sems = max(1, 7 - sems_done)
-        cgpa_diff = round(pl_cgpa - min_cutoff, 2)
-        req_sgpa = round(((min_cutoff * (sems_done + rem_sems)) - (pl_cgpa * sems_done)) / rem_sems, 2)
+        cgpa_diff = round(stu_sgpa - min_cutoff, 2)
+        req_sgpa = round(((min_cutoff * (sems_done + rem_sems)) - (stu_sgpa * sems_done)) / rem_sems, 2)
 
         all_skills = ["Python / Java / C++", "Data Structures & Algorithms", "Full-Stack Web (React/Node)", "SQL & DBMS", "Machine Learning / AI", "Cloud / Docker / Git", "System Design / OS"]
         init_sk = str(stu["Core Skills"]).split(", ") if stu and "Core Skills" in stu else ["Python / Java / C++", "SQL & DBMS"]
@@ -172,22 +158,22 @@ def render_personal_dashboard(stu=None):
         sel_skills = st.multiselect("Verified Skills (For Placement Drive):", all_skills, default=init_sk, key=f"psk_{uid_p}")
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("CGPA vs Min Cutoff", f"{pl_cgpa:.2f} / {min_cutoff:.2f}", f"{cgpa_diff:+.2f}")
-        c2.metric("Placement Cutoff Status", "CLEARED" if pl_cgpa >= min_cutoff else "NOT CLEARED")
-        c3.metric("Required SGPA Next Sem", "Maintained" if pl_cgpa >= min_cutoff else f"{min(10.0, max(0.0, req_sgpa)):.2f} / 10")
+        c1.metric("Score vs Min Cutoff", f"{stu_sgpa:.2f} / {min_cutoff:.2f}", f"{cgpa_diff:+.2f}")
+        c2.metric("Placement Cutoff Status", "CLEARED" if stu_sgpa >= min_cutoff else "NOT CLEARED")
+        c3.metric("Required SGPA Next Sem", "Maintained" if stu_sgpa >= min_cutoff else f"{min(10.0, max(0.0, req_sgpa)):.2f} / 10")
 
-        if pl_cgpa >= min_cutoff:
+        if stu_sgpa >= min_cutoff:
             st.markdown(f'<div class="score-badge">Eligible for Campus Placements! Student has crossed the {min_cutoff:.2f} minimum CGPA cutoff (+{cgpa_diff:.2f} buffer).</div>', unsafe_allow_html=True)
         else:
             if req_sgpa <= 10.0:
                 st.error(f"Below Minimum CGPA Cutoff by {abs(cgpa_diff):.2f} points. Student must score an average SGPA of {req_sgpa:.2f} across the remaining {rem_sems} semester(s) before final year placements to cross {min_cutoff:.2f} CGPA.")
             else:
-                st.error(f"Below Minimum CGPA Cutoff ({pl_cgpa:.2f} < {min_cutoff:.2f}). Even 10.0 SGPA in remaining semesters reaches {round((pl_cgpa*sems_done + 10*rem_sems)/(sems_done+rem_sems), 2)} CGPA — focus on skill-based off-campus drives & companies with 6.0–6.5 CGPA criteria.")
+                st.error(f"Below Minimum CGPA Cutoff ({stu_sgpa:.2f} < {min_cutoff:.2f}). Focus on skill-based off-campus drives & companies with 6.0–6.5 CGPA criteria.")
 
         missing_skills = [s for s in all_skills if s not in sel_skills]
         s_col1, s_col2 = st.columns(2)
-        s_col1.markdown(f'<div class="sw-box sw-str"><strong>Placement Strengths</strong><br>CGPA Criteria: {"Meets >= " + str(min_cutoff) + " Cutoff" if pl_cgpa >= min_cutoff else "Needs " + str(abs(cgpa_diff)) + " CGPA boost"}<br>Skills: {", ".join(sel_skills) if sel_skills else "Add core skills above"}</div>', unsafe_allow_html=True)
-        s_col2.markdown(f'<div class="sw-box sw-wk"><strong>Action Plan to Cross Cutoff & Get Placed</strong><br>1. Academic Target: {"Maintain >= " + str(min_cutoff) + " CGPA" if pl_cgpa >= min_cutoff else "Target " + str(min(10.0, req_sgpa)) + " SGPA next sem"}<br>2. Add Missing Skills: {", ".join(missing_skills[:3]) if missing_skills else "All core skills ready!"}</div>', unsafe_allow_html=True)
+        s_col1.markdown(f'<div class="sw-box sw-str"><strong>Placement Strengths</strong><br>Cutoff Criteria: {"Meets >= " + str(min_cutoff) + " Cutoff" if stu_sgpa >= min_cutoff else "Needs " + str(abs(cgpa_diff)) + " boost"}<br>Skills: {", ".join(sel_skills) if sel_skills else "Add core skills above"}</div>', unsafe_allow_html=True)
+        s_col2.markdown(f'<div class="sw-box sw-wk"><strong>Action Plan to Cross Cutoff & Get Placed</strong><br>1. Academic Target: {"Maintain >= " + str(min_cutoff) if stu_sgpa >= min_cutoff else "Target " + str(min(10.0, req_sgpa)) + " SGPA next sem"}<br>2. Add Missing Skills: {", ".join(missing_skills[:3]) if missing_skills else "All core skills ready!"}</div>', unsafe_allow_html=True)
 
 # Main Router: Personal Dashboard vs 1,000-Student Profiles
 if st.session_state.get("active_stu") is not None:
@@ -212,9 +198,6 @@ else:
         "Attendance (%)": np.random.randint(62, 100, ns),
         "Internal 1 (/50)": np.random.randint(18, 50, ns),
         "Internal 2 (/50)": np.random.randint(20, 50, ns),
-        "Assignment 1 (/5)": np.random.randint(3, 6, ns),
-        "Assignment 2 (/5)": np.random.randint(3, 6, ns),
-        "Previous CGPA": np.round(np.random.uniform(5.8, 9.6, ns), 2),
         "Core Skills": [np.random.choice(skill_pools) for _ in range(ns)]
     })
     st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students_cutoff.csv", "text/csv")
@@ -227,22 +210,20 @@ else:
         bdf = st.session_state["batch_csv"].copy()
         if "USN" not in bdf.columns:
             bdf["USN"] = [f"1RN23CS{100+i}" for i in range(len(bdf))]
-        if all(k in bdf.columns for k in ["Internal 1 (/50)", "Internal 2 (/50)", "Assignment 1 (/5)", "Assignment 2 (/5)"]):
-            bdf["CIE (/50)"] = (((bdf["Internal 1 (/50)"] + bdf["Internal 2 (/50)"]) / 100.0) * 40.0 + bdf["Assignment 1 (/5)"] + bdf["Assignment 2 (/5)"]).round(1)
+        if all(k in bdf.columns for k in ["Internal 1 (/50)", "Internal 2 (/50)"]):
+            bdf["CIE (/50)"] = (((bdf["Internal 1 (/50)"] + bdf["Internal 2 (/50)"]) / 100.0) * 50.0).round(1)
         elif "CIE (/50)" not in bdf.columns:
             bdf["CIE (/50)"] = 35.0
         bdf["Predicted SEE (/50)"] = see_model.predict(bdf[["Attendance (%)", "CIE (/50)"]].values).round(1)
         bdf["Predicted Total (/100)"] = (bdf["CIE (/50)"] + bdf["Predicted SEE (/50)"]).round(1)
         bres = [get_grade(t, c, s) for t, c, s in zip(bdf["Predicted Total (/100)"], bdf["CIE (/50)"], bdf["Predicted SEE (/50)"])]
         bdf["SGPA"] = [r[0] for r in bres]
-        base_c = bdf["Previous CGPA"] if "Previous CGPA" in bdf.columns else 7.5
-        bdf["Projected CGPA"] = (((base_c * 3) + bdf["SGPA"]) / 4).round(2)
         if "Core Skills" not in bdf.columns: bdf["Core Skills"] = "Python / Java / C++, SQL & DBMS"
 
-        bdf["Cutoff Gap"] = (bdf["Projected CGPA"] - min_batch_cutoff).round(2)
-        bdf["Status"] = np.where(bdf["Projected CGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min CGPA")
+        bdf["Cutoff Gap"] = (bdf["SGPA"] - min_batch_cutoff).round(2)
+        bdf["Status"] = np.where(bdf["SGPA"] >= min_batch_cutoff, "Eligible (Cutoff Cleared)", "Below Min CGPA")
 
-        eligible_cnt = int((bdf["Projected CGPA"] >= min_batch_cutoff).sum())
+        eligible_cnt = int((bdf["SGPA"] >= min_batch_cutoff).sum())
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Students", len(bdf))
         k2.metric("Min CGPA Cutoff", f"{min_batch_cutoff:.2f}")
@@ -256,14 +237,14 @@ else:
         grid_cols = st.columns(3)
         for idx, (_, r) in enumerate(filtered.head(9).iterrows()):
             initials = "".join([w[0] for w in str(r["Student Name"]).split()[:2]]).upper()
-            tag_cls = "tag-ok" if r["Projected CGPA"] >= min_batch_cutoff else "tag-risk"
+            tag_cls = "tag-ok" if r["SGPA"] >= min_batch_cutoff else "tag-risk"
             with grid_cols[idx % 3]:
                 st.markdown(f"""
                 <div class="stu-card">
                   <div class="stu-avatar">{initials}</div>
                   <p class="stu-name">{r['Student Name']}</p>
                   <p class="stu-id">ID: {r['USN']}</p>
-                  <p class="stu-stat">Projected CGPA: {r['Projected CGPA']} / 10</p>
+                  <p class="stu-stat">Predicted SGPA: {r['SGPA']} / 10</p>
                   <p class="stu-stat">Cutoff ({min_batch_cutoff}): {r['Cutoff Gap']:+.2f}</p>
                   <span class="{tag_cls}">{r['Status']}</span>
                 </div>
