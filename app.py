@@ -5,14 +5,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 
-# Page Configuration
-st.set_page_config(page_title="Student Performance Insights (RNSIT / VTU Scheme)", layout="centered")
+st.set_page_config(page_title="Student Performance Insights", layout="centered")
 st.title("Student Performance Insights")
-st.markdown("RNSIT / VTU Evaluation Model: **CIE (50 Marks)** [2 Internals + 2 Assignments] + **Predicted SEE (50 Marks)** = **Total (100)**, SGPA & CGPA.")
+st.markdown("RNSIT / VTU Scheme: **CIE (50 Marks)** [2 Internals + 2 Assignments] + **Predicted SEE (50 Marks)** = **Total (100)**, SGPA & CGPA.")
 
-# Helper function: VTU / RNSIT 10-point Grading Scale
 def get_gpa_and_grade(total_score, cie_marks, see_marks):
-    # VTU/RNSIT minimum passing rules: CIE >= 20/50, SEE >= 18/50, Total >= 40/100
     if cie_marks < 20 or see_marks < 18 or total_score < 40:
         return 0.0, "F"
     elif total_score >= 90:
@@ -30,14 +27,13 @@ def get_gpa_and_grade(total_score, cie_marks, see_marks):
     else:
         return 4.0, "P"
 
-# 1. Generate realistic RNSIT/VTU training dataset (300 records)
+# 1. Generate realistic RNSIT/VTU training dataset
 np.random.seed(42)
 n_students = 300
 attendance = np.random.randint(55, 100, n_students)
-cie_total = np.random.uniform(18, 50, n_students)          # Out of 50 (Internals + Assignments)
-last_sem_exam = np.random.randint(35, 98, n_students)      # Out of 100
+cie_total = np.random.uniform(18, 50, n_students)
+last_sem_exam = np.random.randint(35, 98, n_students)
 
-# SEE (out of 50) correlates with CIE performance, Last Sem Exam, and Attendance
 see_score = np.clip(
     0.45 * cie_total + 0.18 * last_sem_exam + 0.12 * attendance + np.random.normal(0, 2.2, n_students),
     0, 50
@@ -50,7 +46,7 @@ df = pd.DataFrame({
     "SEE Marks (out of 50)": see_score
 })
 
-# 2. Train Model to Predict SEE (out of 50)
+# 2. Train Model
 feature_cols = ["Attendance (%)", "CIE Marks (out of 50)", "Last Sem Exam (out of 100)"]
 X = df[feature_cols]
 y = df["SEE Marks (out of 50)"]
@@ -60,7 +56,7 @@ model = RandomForestRegressor(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 preds = model.predict(X_test)
 
-# 3. Display Model Metrics & Explainable AI (Feature Importance)
+# 3. Display Model Metrics
 st.subheader("Model Performance & Key Drivers (SEE Prediction)")
 col1, col2 = st.columns(2)
 col1.metric("SEE Model MAE (Error)", f"{mean_absolute_error(y_test, preds):.2f} / 50 Marks")
@@ -83,7 +79,6 @@ c_gpa1, c_gpa2 = st.columns(2)
 current_cgpa = c_gpa1.number_input("Current CGPA (out of 10)", min_value=0.0, max_value=10.0, value=7.65, step=0.05)
 completed_sems = c_gpa2.number_input("Completed Semesters", min_value=1, max_value=8, value=3, step=1)
 
-# Default realistic data: (Subject, Credits, Attendance, Int1/50, Int2/50, Assign1/5, Assign2/5, LastSem/100)
 default_subjects = [
     ("Data Structures & Applications", 4, 86, 41, 43, 5, 4, 78),
     ("Operating Systems", 4, 72, 24, 26, 4, 3, 62),
@@ -95,74 +90,10 @@ default_subjects = [
 
 subject_inputs = []
 for i, (def_name, def_cred, def_att, def_i1, def_i2, def_a1, def_a2, def_last) in enumerate(default_subjects):
-    # Calculate live CIE preview for the expander header: ((Int1 + Int2)/100)*40 + Assign1 + Assign2
-    preview_cie = round(((def_i1 + def_i2) / 100.0) * 40.0 + def_a1 + def_a2, 1)
     with st.expander(f"Subject {i + 1}: {def_name}", expanded=(i == 0)):
         s_col1, s_col2 = st.columns([3, 1])
         s_name = s_col1.text_input("Subject Name", value=def_name, key=f"name_{i}")
         s_cred = s_col2.number_input("Credits", min_value=1, max_value=6, value=def_cred, key=f"cred_{i}")
 
         r1_c1, r1_c2 = st.columns(2)
-        s_att = r1_c1.slider("Attendance (%)", 40, 100, def_att, key=f"att_{i}")
-        s_last = r1_c2.number_input("Last Sem Exam (out of 100)", 0, 100, def_last, key=f"last_{i}")
-
-        st.caption("Continuous Internal Evaluation (CIE - Total 50 Marks)")
-        r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
-        s_int1 = r2_c1.number_input("Internal 1 (/50)", 0, 50, def_i1, key=f"int1_{i}")
-        s_int2 = r2_c2.number_input("Internal 2 (/50)", 0, 50, def_i2, key=f"int2_{i}")
-        s_asg1 = r2_c3.number_input("Assign 1 (/5)", 0, 5, def_a1, key=f"asg1_{i}")
-        s_asg2 = r2_c4.number_input("Assign 2 (/5)", 0, 5, def_a2, key=f"asg2_{i}")
-
-        # Scale two 50-mark internals to 40 marks + 10 marks from two 5-mark assignments = 50 CIE marks
-        cie_calc = round(((s_int1 + s_int2) / 100.0) * 40.0 + s_asg1 + s_asg2, 1)
-        st.info(f"Calculated CIE: **{cie_calc} / 50** (Internals: {((s_int1 + s_int2)/100.0)*40.0:.1f}/40 + Assignments: {s_asg1 + s_asg2}/10)")
-
-        subject_inputs.append({
-            "Subject": s_name,
-            "Credits": s_cred,
-            "Attendance (%)": s_att,
-            "CIE Marks (out of 50)": cie_calc,
-            "Last Sem Exam (out of 100)": s_last
-        })
-
-if st.button("Predict SEE, Final Total (100), SGPA & CGPA"):
-    sub_df = pd.DataFrame(subject_inputs)
-    sub_df["Predicted SEE (/50)"] = model.predict(sub_df[feature_cols]).round(1)
-    sub_df["Final Total (/100)"] = (sub_df["CIE Marks (out of 50)"] + sub_df["Predicted SEE (/50)"]).round(1)
-
-    gpa_info = [
-        get_gpa_and_grade(tot, cie, see)
-        for tot, cie, see in zip(sub_df["Final Total (/100)"], sub_df["CIE Marks (out of 50)"], sub_df["Predicted SEE (/50)"])
-    ]
-    sub_df["Grade Point"] = [g[0] for g in gpa_info]
-    sub_df["Grade"] = [g[1] for g in gpa_info]
-    sub_df["Credit Points"] = sub_df["Credits"] * sub_df["Grade Point"]
-
-    total_credits = sub_df["Credits"].sum()
-    sem_sgpa = sub_df["Credit Points"].sum() / total_credits
-    new_cgpa = ((current_cgpa * completed_sems) + sem_sgpa) / (completed_sems + 1)
-    cgpa_delta = new_cgpa - current_cgpa
-    avg_total = sub_df["Final Total (/100)"].mean()
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Avg Final Score", f"{avg_total:.1f} / 100")
-    m2.metric("Semester SGPA", f"{sem_sgpa:.2f} / 10")
-    m3.metric("Projected CGPA", f"{new_cgpa:.2f} / 10", f"{cgpa_delta:+.2f}")
-
-    st.dataframe(
-        sub_df[["Subject", "Credits", "CIE Marks (out of 50)", "Predicted SEE (/50)", "Final Total (/100)", "Grade", "Grade Point"]],
-        use_container_width=True
-    )
-
-    # RNSIT / VTU Eligibility & Risk Alerts
-    st.subheader("RNSIT / VTU Eligibility & Mentor Alerts")
-    low_cie_subs = sub_df[sub_df["CIE Marks (out of 50)"] < 20]["Subject"].tolist()
-    low_att_subs = sub_df[sub_df["Attendance (%)"] < 75]["Subject"].tolist()
-    low_see_subs = sub_df[sub_df["Predicted SEE (/50)"] < 18]["Subject"].tolist()
-
-    if low_cie_subs:
-        st.error(f"CIE Shortage (<20/50) in: {', '.join(low_cie_subs)}. Not eligible for SEE unless improvement internal/assignment marks are secured.")
-    if low_att_subs:
-        st.warning(f"Attendance Shortage (<75%) in: {', '.join(low_att_subs)}. Condonation or extra classes required.")
-    if low_see_subs:
-        st.warning(f"SEE Passing Risk (<18/50) in: {', '.join(low_
+        s_att = r1_
