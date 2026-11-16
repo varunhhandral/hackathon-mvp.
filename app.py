@@ -114,4 +114,150 @@ def render_personal_dashboard(stu=None):
             if only_one:
                 k1, k2, k3 = st.columns(3)
                 v1 = k1.number_input("Theory Int 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
-                v2 = v
+                v2 = v1  # Project Int 2 from Int 1
+                v3 = k2.number_input("Assign 1 (/5)", 0, 5, a1, key=f"a1_{uid}_{i}")
+                v4 = v3
+            else:
+                k1, k2, k3, k4 = st.columns(4)
+                v1 = k1.number_input("Theory Int 1 (/50)", 0, 50, i1, key=f"i1_{uid}_{i}")
+                v2 = k2.number_input("Theory Int 2 (/50)", 0, 50, i2, key=f"i2_{uid}_{i}")
+                v3 = k3.number_input("Assign 1 (/5)", 0, 5, a1, key=f"a1_{uid}_{i}")
+                v4 = k4.number_input("Assign 2 (/5)", 0, 5, a2, key=f"a2_{uid}_{i}")
+
+            has_lab = st.checkbox("Include Lab Component?", value=h_lab, key=f"hl_{uid}_{i}")
+            if has_lab:
+                l1, l2, l3 = st.columns(3)
+                lv1 = l1.number_input("Lab Int 1 (/50)", 0, 50, li1, key=f"li1_{uid}_{i}")
+                lv2 = lv1 if only_one else l2.number_input("Lab Int 2 (/50)", 0, 50, li2, key=f"li2_{uid}_{i}")
+                has_ext = l3.checkbox("External Lab Exam?", value=h_ext, key=f"he_{uid}_{i}")
+                ext_val = st.number_input("External Lab (/50)", 0, 50, ext_m if ext_m > 0 else 40, key=f"ex_{uid}_{i}") if has_ext else 0
+                cie_val = round(((v1 + v2) / 100.0) * 25.0 + ((v3 + v4) / 10.0) * 5.0 + ((lv1 + lv2) / 100.0) * 20.0, 1)
+                raw_see = float(see_model.predict([[s_at, cie_val]])[0])
+                see_val = round((raw_see / 50.0) * 35.0 + (ext_val / 50.0) * 15.0, 1) if has_ext else round(raw_see, 1)
+            else:
+                cie_val = round(((v1 + v2) / 100.0) * 40.0 + v3 + v4, 1)
+                see_val = round(float(see_model.predict([[s_at, cie_val]])[0]), 1)
+
+            tot_val = round(min(100.0, cie_val + see_val), 1)
+            mode_lbl = "1-Int Projection" if only_one else "2-Int Evaluation"
+            st.markdown(f'<div class="score-badge">{mode_lbl} &rarr; CIE: {cie_val}/50 &nbsp;|&nbsp; Predicted SEE: {see_val}/50 &nbsp;|&nbsp; Predicted Final: {tot_val}/100</div>', unsafe_allow_html=True)
+            rows.append({"Subject": s_nm, "Credits": s_cr, "Attendance (%)": s_at, "CIE (/50)": cie_val, "Predicted SEE (/50)": see_val, "Predicted Total (/100)": tot_val})
+
+    if st.button("Predict Final Marks, SGPA & Generate Study Planner"):
+        sdf = pd.DataFrame(rows)
+        res = [get_grade(t, c, s) for t, c, s in zip(sdf["Predicted Total (/100)"], sdf["CIE (/50)"], sdf["Predicted SEE (/50)"])]
+        sdf["GP"] = [r[0] for r in res]
+        sdf["Grade"] = [r[1] for r in res]
+        sgpa = (sdf["Credits"] * sdf["GP"]).sum() / sdf["Credits"].sum()
+        ncgpa = ((curr_cgpa * comp_sems) + sgpa) / (comp_sems + 1)
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Predicted Avg", f"{sdf['Predicted Total (/100)'].mean():.1f} / 100")
+        m2.metric("Predicted SGPA", f"{sgpa:.2f} / 10")
+        m3.metric("Projected CGPA", f"{ncgpa:.2f} / 10", f"{ncgpa - curr_cgpa:+.2f}")
+
+        show_s = sdf[["Subject", "Credits", "CIE (/50)", "Predicted SEE (/50)", "Predicted Total (/100)", "Grade", "GP"]]
+        st.dataframe(show_s.style.map(style_grade, subset=["Grade"]), use_container_width=True)
+
+        # Strength & Weakness Analysis
+        st.subheader("AI Strength & Weakness Diagnosis")
+        strengths = sdf[sdf["Predicted Total (/100)"] >= 75]["Subject"].tolist()
+        weaknesses = sdf[(sdf["Predicted Total (/100)"] < 60) | (sdf["CIE (/50)"] < 22)]["Subject"].tolist()
+        moderate = sdf[(sdf["Predicted Total (/100)"] >= 60) & (sdf["Predicted Total (/100)"] < 75) & (sdf["CIE (/50)"] >= 22)]["Subject"].tolist()
+
+        c_sw1, c_sw2 = st.columns(2)
+        with c_sw1:
+            str_txt = ", ".join(strengths) if strengths else "Focus on building 75+ mastery in top subjects"
+            st.markdown(f'<div class="sw-box sw-str"><strong>Core Strengths (&ge;75 Marks)</strong><br>{str_txt}<br><small>Action: Aim for O/A+ grade (90+) to boost SGPA.</small></div>', unsafe_allow_html=True)
+        with c_sw2:
+            wk_txt = ", ".join(weaknesses) if weaknesses else "No critical weak subjects detected!"
+            st.markdown(f'<div class="sw-box sw-wk"><strong>Priority Weaknesses (&lt;60 or Low CIE)</strong><br>{wk_txt}<br><small>Action: Immediate revision + CIE improvement test.</small></div>', unsafe_allow_html=True)
+
+        # Personalized Weekly Study Planner
+        st.subheader("Personalized 4-Week Study & Recovery Planner")
+        plan_rows = []
+        for _, r in sdf.iterrows():
+            tot, cie_m, att_m = r["Predicted Total (/100)"], r["CIE (/50)"], r["Attendance (%)"]
+            if cie_m < 20 or tot < 55:
+                prio, hrs, focus = "High Priority (Weak)", "8 hrs/week", "Basics + Past 5-Yr VTU Papers + Improvement Test"
+            elif tot < 75 or att_m < 75:
+                prio, hrs, focus = "Medium (Moderate)", "5 hrs/week", "Module-wise Numericals + Lab Viva + Attendance >=80%"
+            else:
+                prio, hrs, focus = "Maintain (Strength)", "3 hrs/week", "Mock Tests + High-Weightage 10-Mark Questions"
+            plan_rows.append({"Subject": r["Subject"], "Category": prio, "Weekly Target": hrs, "Recommended Study Focus": focus})
+        st.dataframe(pd.DataFrame(plan_rows), use_container_width=True)
+
+# Main Router: Personal Dashboard vs 1,000-Student Profiles
+if st.session_state.get("active_stu") is not None:
+    render_personal_dashboard(st.session_state["active_stu"])
+else:
+    st.subheader("Batch Class Analysis (Upload CSV)")
+    np.random.seed(99)
+    ns = 1000
+    fn = ["Nandini", "Kavya", "Abhishek", "Aarav", "Diya", "Rohan", "Meera", "Kabir", "Ananya", "Vikram"]
+    ln = ["Nair", "Gowda", "Das", "Sharma", "Patel", "Reddy", "Verma", "Gupta", "Iyer", "Singh"]
+    samp = pd.DataFrame({
+        "Student Name": [f"{np.random.choice(fn)} {np.random.choice(ln)}" for _ in range(ns)],
+        "USN": [f"1RN23CS{100+i}" for i in range(ns)],
+        "Attendance (%)": np.random.randint(58, 100, ns),
+        "Internal 1 (/50)": np.random.randint(16, 50, ns),
+        "Internal 2 (/50)": np.random.randint(18, 50, ns),
+        "Assignment 1 (/5)": np.random.randint(2, 6, ns),
+        "Assignment 2 (/5)": np.random.randint(2, 6, ns),
+        "Previous CGPA": np.round(np.random.uniform(5.8, 9.6, ns), 2)
+    })
+    st.download_button("Download 1,000-Student Dataset (CSV)", samp.to_csv(index=False).encode(), "rnsit_1000_students.csv", "text/csv")
+
+    up = st.file_uploader("Upload CSV", type=["csv"])
+    if up is not None:
+        st.session_state["batch_csv"] = pd.read_csv(up)
+
+    if "batch_csv" in st.session_state:
+        bdf = st.session_state["batch_csv"].copy()
+        if "USN" not in bdf.columns:
+            bdf["USN"] = [f"1RN23CS{100+i}" for i in range(len(bdf))]
+        if all(k in bdf.columns for k in ["Internal 1 (/50)", "Internal 2 (/50)", "Assignment 1 (/5)", "Assignment 2 (/5)"]):
+            bdf["CIE (/50)"] = (((bdf["Internal 1 (/50)"] + bdf["Internal 2 (/50)"]) / 100.0) * 40.0 + bdf["Assignment 1 (/5)"] + bdf["Assignment 2 (/5)"]).round(1)
+        elif "CIE (/50)" not in bdf.columns:
+            bdf["CIE (/50)"] = 35.0
+        bdf["Predicted SEE (/50)"] = see_model.predict(bdf[["Attendance (%)", "CIE (/50)"]].values).round(1)
+        bdf["Predicted Total (/100)"] = (bdf["CIE (/50)"] + bdf["Predicted SEE (/50)"]).round(1)
+        bres = [get_grade(t, c, s) for t, c, s in zip(bdf["Predicted Total (/100)"], bdf["CIE (/50)"], bdf["Predicted SEE (/50)"])]
+        bdf["SGPA"] = [r[0] for r in bres]
+        bdf["Grade"] = [r[1] for r in bres]
+        base_c = bdf["Previous CGPA"] if "Previous CGPA" in bdf.columns else 7.5
+        bdf["Projected CGPA"] = (((base_c * 3) + bdf["SGPA"]) / 4).round(2)
+        bdf["Pass Prob (%)"] = np.clip((bdf["Predicted Total (/100)"] * 1.45 + bdf["Attendance (%)"] * 0.25), 12.0, 100.0).round(2)
+        bdf["Risk"] = np.where((bdf["CIE (/50)"] < 20) | (bdf["Attendance (%)"] < 75) | (bdf["Predicted Total (/100)"] < 45), "At Risk", "On Track")
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Students", len(bdf))
+        k2.metric("Avg Predicted", f"{bdf['Predicted Total (/100)'].mean():.1f}")
+        k3.metric("Avg CGPA", f"{bdf['Projected CGPA'].mean():.2f}")
+        k4.metric("At Risk", int((bdf["Risk"] == "At Risk").sum()))
+
+        st.subheader("Individual Student Profiles")
+        q = st.text_input("Search student name or ID", placeholder="e.g., Nandini or 1RN23CS105")
+        filtered = bdf[bdf["Student Name"].str.contains(q, case=False, na=False) | bdf["USN"].str.contains(q, case=False, na=False)] if q else bdf
+
+        grid_cols = st.columns(3)
+        for idx, (_, r) in enumerate(filtered.head(9).iterrows()):
+            initials = "".join([w[0] for w in str(r["Student Name"]).split()[:2]]).upper()
+            tag_cls = "tag-ok" if r["Risk"] == "On Track" else "tag-risk"
+            with grid_cols[idx % 3]:
+                st.markdown(f"""
+                <div class="stu-card">
+                  <div class="stu-avatar">{initials}</div>
+                  <p class="stu-name">{r['Student Name']}</p>
+                  <p class="stu-id">ID: {r['USN']}</p>
+                  <p class="stu-stat">Predicted Marks: {r['Predicted Total (/100)']}</p>
+                  <p class="stu-stat">Pass Probability: {r['Pass Prob (%)']}%</p>
+                  <span class="{tag_cls}">{r['Risk']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("Open Personal Dashboard", key=f"open_{r['USN']}_{idx}"):
+                    st.session_state["active_stu"] = r.to_dict()
+                    st.rerun()
+    else:
+        st.divider()
+        render_personal_dashboard(None)
