@@ -3,15 +3,15 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Professional Office Data Entry & Cleaning Utility",
+    page_title="One-Click Data Cleaning & Sequence Utility",
     layout="wide",
 )
 
-st.title("💼 One-Click Data Cleaning & Client Deliverable Generator")
+st.title("⚡ One-Click Data Cleaning, Sequence Ordering & Client Report")
 st.markdown(
-    "Upload any raw client file. This tool cleans **every single row**, removes"
-    " duplicates, standardizes dates and text, calculates totals, and exports a"
-    " complete multi-sheet Excel file."
+    "Upload any scrambled client file. This tool cleans **all rows**, removes"
+    " duplicates, **sorts records in proper sequence (ID & Date)**, orders"
+    " columns logically, and exports a styled multi-sheet Excel report."
 )
 
 # 1. File Uploader
@@ -33,15 +33,25 @@ if uploaded_file is not None:
       f"Loaded **{len(df):,} raw rows** across **{len(df.columns)} columns**."
   )
 
-  # 2. One-Click Full Cleaning & Calculation Button
-  if st.button("🚀 Clean All Data & Generate Client Excel"):
-    with st.spinner("Cleaning all rows and building summary sheets..."):
+  # 2. Sequence Preference Selector
+  sort_option = st.radio(
+      "Choose Sequence Order for Client Deliverable:",
+      [
+          "ID Sequence (e.g., ZM-0001 → ZM-2000)",
+          "Chronological Date Sequence (Oldest → Newest)",
+          "Area / Department Grouping + ID Sequence",
+      ],
+      horizontal=True,
+  )
+
+  # 3. One-Click Process Button
+  if st.button("🚀 Clean, Arrange Sequence-Wise & Generate Excel"):
+    with st.spinner("Cleaning, sorting in sequence, and formatting Excel..."):
       cleaned_df = df.copy()
 
-      # A. Trim whitespace & normalize casing across all text columns
+      # A. Trim whitespace & normalize text casing
       text_cols = cleaned_df.select_dtypes(include=["object"]).columns
       for col in text_cols:
-        # Leave Order IDs uppercase, Title Case everything else
         if "id" in col.lower():
           cleaned_df[col] = cleaned_df[col].astype(str).str.strip().str.upper()
         else:
@@ -52,25 +62,28 @@ if uploaded_file is not None:
               .str.replace(r"\s+", " ", regex=True)
               .str.title()
           )
-        # Replace string 'Nan' or 'None' back to actual NaN before filling
         cleaned_df[col] = cleaned_df[col].replace(
-            ["Nan", "None", "NAT", ""], pd.NA
+            ["Nan", "None", "Nat", ""], pd.NA
         )
 
-      # B. Drop exact duplicate rows
+      # B. Drop exact duplicates
       before_dups = len(cleaned_df)
       cleaned_df = cleaned_df.drop_duplicates().reset_index(drop=True)
       dups_removed = before_dups - len(cleaned_df)
 
-      # C. Standardize Date Columns
-      for col in cleaned_df.columns:
-        if "date" in col.lower():
-          parsed_dates = pd.to_datetime(cleaned_df[col], errors="coerce")
-          cleaned_df[col] = parsed_dates.dt.strftime("%B %d, %Y").fillna(
-              "Not Specified"
-          )
+      # C. Parse Dates cleanly (keep real datetime temporarily for accurate sorting)
+      date_col = next(
+          (c for c in cleaned_df.columns if "date" in c.lower()), None
+      )
+      if date_col:
+        cleaned_df["_sort_date"] = pd.to_datetime(
+            cleaned_df[date_col], errors="coerce"
+        )
+        cleaned_df[date_col] = cleaned_df["_sort_date"].dt.strftime(
+            "%B %d, %Y"
+        ).fillna("Not Specified")
 
-      # D. Convert word-numbers to digits (Quantity & Rating)
+      # D. Convert word-numbers to digits
       word_map = {
           "One": 1,
           "Two": 2,
@@ -86,21 +99,21 @@ if uploaded_file is not None:
           if col == "Quantity":
             cleaned_df[col] = cleaned_df[col].fillna(1).astype(int)
           else:
-            cleaned_df[col] = cleaned_df[col].fillna(
-                cleaned_df[col].median()
-            ).round(1)
+            cleaned_df[col] = (
+                cleaned_df[col].fillna(cleaned_df[col].median()).round(1)
+            )
 
-      # E. Clean Currency & Numeric Columns (₹, Rs., commas)
+      # E. Clean Currency & Numeric Columns
       currency_cols = [
-          col
-          for col in [
+          c
+          for c in [
               "Item Price",
               "Delivery Fee",
               "Basic Salary",
               "Salary",
               "Price",
           ]
-          if col in cleaned_df.columns
+          if c in cleaned_df.columns
       ]
       for col in currency_cols:
         cleaned_df[col] = (
@@ -116,7 +129,7 @@ if uploaded_file is not None:
             0
         )
 
-      # F. Clean Attendance & Pincode if present
+      # F. Clean Attendance & Pincode
       if "Attendance" in cleaned_df.columns:
         cleaned_df["Attendance"] = (
             pd.to_numeric(cleaned_df["Attendance"], errors="coerce")
@@ -132,11 +145,11 @@ if uploaded_file is not None:
             .replace("0", "Not Provided")
         )
 
-      # Fill remaining missing text values cleanly
+      # Fill remaining missing text values
       for col in cleaned_df.select_dtypes(include=["object"]).columns:
         cleaned_df[col] = cleaned_df[col].fillna("Not Specified")
 
-      # G. Calculated Columns (Revenue & Office Payroll/Performance)
+      # G. Calculated Business Columns
       if all(
           c in cleaned_df.columns
           for c in ["Quantity", "Item Price", "Delivery Fee"]
@@ -153,7 +166,81 @@ if uploaded_file is not None:
             lambda x: "Good" if x >= 25 else "Bad"
         )
 
-      # H. Build Client Summary Sheet (Area-wise or Department-wise)
+      # H. SEQUENCE-WISE SORTING (Rows + Logical Column Order)
+      id_col = next(
+          (
+              c
+              for c in cleaned_df.columns
+              if c.lower() in ["order id", "employee id", "id"]
+          ),
+          None,
+      )
+      if id_col:
+        # Extract numeric part so ZM-2 comes before ZM-10
+        cleaned_df["_sort_id_num"] = (
+            cleaned_df[id_col]
+            .astype(str)
+            .str.extract(r"(\d+)")
+            .astype(float)
+            .fillna(999999)
+        )
+
+      if "ID Sequence" in sort_option and id_col:
+        cleaned_df = cleaned_df.sort_values(
+            by=["_sort_id_num", id_col], ascending=True
+        )
+      elif "Chronological" in sort_option and date_col:
+        sort_cols = ["_sort_date"] + (["_sort_id_num"] if id_col else [])
+        cleaned_df = cleaned_df.sort_values(by=sort_cols, ascending=True)
+      elif "Area / Department" in sort_option:
+        grp = (
+            "Area"
+            if "Area" in cleaned_df.columns
+            else ("Department" if "Department" in cleaned_df.columns else None)
+        )
+        sort_cols = ([grp] if grp else []) + (
+            ["_sort_id_num"] if id_col else []
+        )
+        if sort_cols:
+          cleaned_df = cleaned_df.sort_values(by=sort_cols, ascending=True)
+
+      # Drop helper sort columns & reset index
+      cleaned_df = cleaned_df.drop(
+          columns=[
+              c for c in ["_sort_date", "_sort_id_num"] if c in cleaned_df.columns
+          ]
+      ).reset_index(drop=True)
+
+      # Arrange columns in clean office sequence (ID -> Date -> Names -> Area/Dept -> Items -> Financials -> Status)
+      preferred_order = [
+          "Order ID",
+          "Employee ID",
+          "Order Date",
+          "Joining Date",
+          "Customer Name",
+          "Employee Name",
+          "Restaurant Name",
+          "Area",
+          "Department",
+          "Pincode",
+          "Item",
+          "Quantity",
+          "Item Price",
+          "Delivery Fee",
+          "Total_Revenue",
+          "Basic Salary",
+          "Attendance",
+          "Calculated_Salary",
+          "Performance",
+          "Payment Method",
+          "Order Status",
+          "Rating",
+      ]
+      ordered_cols = [c for c in preferred_order if c in cleaned_df.columns]
+      remaining_cols = [c for c in cleaned_df.columns if c not in ordered_cols]
+      cleaned_df = cleaned_df[ordered_cols + remaining_cols]
+
+      # I. Build Client Summary Sheet
       if "Area" in cleaned_df.columns and "Total_Revenue" in cleaned_df.columns:
         summary_df = (
             cleaned_df.groupby("Area", as_index=False)
@@ -178,40 +265,65 @@ if uploaded_file is not None:
       else:
         summary_df = cleaned_df.describe().reset_index()
 
-      st.session_state["full_cleaned_df"] = cleaned_df
-      st.session_state["full_summary_df"] = summary_df
+      st.session_state["seq_cleaned_df"] = cleaned_df
+      st.session_state["seq_summary_df"] = summary_df
       st.session_state["dups_removed"] = dups_removed
 
-  # 3. Show Full Output & One-Click Excel Download
-  if "full_cleaned_df" in st.session_state:
-    res_df = st.session_state["full_cleaned_df"]
-    sum_df = st.session_state["full_summary_df"]
+  # 4. Display Full Output & Styled Multi-Sheet Excel Export
+  if "seq_cleaned_df" in st.session_state:
+    res_df = st.session_state["seq_cleaned_df"]
+    sum_df = st.session_state["seq_summary_df"]
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Cleaned Rows Ready", f"{len(res_df):,}")
+    c1.metric("Total Sequenced & Cleaned Rows", f"{len(res_df):,}")
     c2.metric("Duplicates Removed", st.session_state["dups_removed"])
-    c3.metric("Remaining Missing Cells", int(res_df.isnull().sum().sum()))
+    c3.metric("Missing Cells", int(res_df.isnull().sum().sum()))
 
-    # One-Click Download at the top so you don't even have to scroll
+    # Create formatted Excel workbook using openpyxl
+    from openpyxl.styles import Alignment, Font, PatternFill
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
       res_df.to_excel(writer, sheet_name="All_Cleaned_Data", index=False)
       sum_df.to_excel(writer, sheet_name="Client_Summary", index=False)
 
+      # Style headers & auto-adjust column widths on both sheets
+      header_fill = PatternFill(
+          start_color="1E293B", end_color="1E293B", fill_type="solid"
+      )
+      header_font = Font(color="FFFFFF", bold=True)
+
+      for sheet_name in ["All_Cleaned_Data", "Client_Summary"]:
+        ws = writer.sheets[sheet_name]
+        ws.freeze_panes = "A2"  # Freeze top header row
+        for col_cells in ws.columns:
+          max_len = 0
+          col_letter = col_cells[0].column_letter
+          for idx, cell in enumerate(col_cells):
+            if idx == 0:
+              cell.fill = header_fill
+              cell.font = header_font
+              cell.alignment = Alignment(horizontal="center", vertical="center")
+            val_len = len(str(cell.value or ""))
+            if val_len > max_len:
+              max_len = val_len
+          ws.column_dimensions[col_letter].width = min(max_len + 4, 35)
+
     st.download_button(
         label=(
-            f"📥 Download Complete Cleaned Excel ({len(res_df):,} Rows +"
+            f"📥 Download Sequenced & Formatted Excel ({len(res_df):,} Rows +"
             " Summary)"
         ),
         data=output.getvalue(),
-        file_name="Client_Fully_Cleaned_Deliverable.xlsx",
+        file_name="Client_Sequenced_Cleaned_Report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
     st.subheader("📊 Client Summary Table")
     st.dataframe(sum_df, use_container_width=True)
 
-    st.subheader(f"✨ Complete Cleaned Dataset (All {len(res_df):,} Rows)")
-    # Displays the entire cleaned dataframe in a scrollable table
+    st.subheader(
+        f"✨ Sequence-Ordered & Cleaned Dataset (All {len(res_df):,} Rows)"
+    )
     st.dataframe(res_df, use_container_width=True, height=500)
         
