@@ -18,7 +18,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# Color Palettes (Optional)
 PALETTES = {
     "None (Plain Clean Office Format)": None,
     "Corporate Slate Navy": {
@@ -55,14 +54,22 @@ st.markdown(
     " **Excel** or **Word (`.docx`)** files."
 )
 
-# --- SIDEBAR: 12-YEAR SENIOR DATA ENTRY CONTROLS ---
+# --- SIDEBAR CONTROLS ---
 with st.sidebar:
   st.header("⚙️ Senior Data Entry Controls")
 
+  # Auto-detect key from Streamlit secrets or environment variables if available
+  default_key = ""
+  try:
+    if "GEMINI_API_KEY" in st.secrets:
+      default_key = st.secrets["GEMINI_API_KEY"]
+    elif "GEMINI_API_KEY" in os.environ:
+      default_key = os.environ["GEMINI_API_KEY"]
+  except Exception:
+    pass
+
   api_key = st.text_input(
-      "Gemini API Key (for PDF / Image OCR & Smart Parsing)",
-      value=os.environ.get("GEMINI_API_KEY", ""),
-      type="password",
+      "Gemini API Key", value=default_key, type="password"
   )
 
   output_format = st.selectbox(
@@ -123,10 +130,8 @@ with col_right:
       "Client Request / Custom Formatting Instructions",
       height=155,
       placeholder=(
-          "Paste the client's exact email or instructions here (e.g., 'Convert"
-          " these scanned PDFs into Word documents using Arial size 11,"
-          " preserve footer info and background shading' OR 'Clean Zomato"
-          " orders and calculate area-wise revenue')..."
+          "Paste client instructions here (e.g., 'Convert scanned PDFs into Word"
+          " using Arial size 11, preserve footer info')..."
       ),
   )
 
@@ -151,7 +156,6 @@ def build_docx_from_structured_json(
   normal_style.font.name = font_name
   normal_style.font.size = Pt(font_pt)
 
-  # Footer handling
   footer_text = doc_json.get("footer", "")
   if keep_footer and footer_text:
     section = doc.sections[0]
@@ -160,7 +164,6 @@ def build_docx_from_structured_json(
     fr.font.name = font_name
     fr.font.size = Pt(font_pt)
 
-  # Render blocks in exact sequence
   for block in doc_json.get("blocks", []):
     b_type = block.get("type", "paragraph")
     if b_type == "banner":
@@ -285,7 +288,6 @@ def clean_tabular_dataframe(df, do_clean, seq_mode):
     for col in out.select_dtypes(include=["object"]).columns:
       out[col] = out[col].fillna("Not Specified")
 
-  # Sequence sorting
   id_col = next(
       (
           c
@@ -302,7 +304,9 @@ def clean_tabular_dataframe(df, do_clean, seq_mode):
   elif "Chronological" in seq_mode and "_sort_dt" in out.columns:
     out = out.sort_values(by=["_sort_dt"])
   elif "Category" in seq_mode:
-    grp = next((c for c in ["Area", "Department", "Category"] if c in out.columns), None)
+    grp = next(
+        (c for c in ["Area", "Department", "Category"] if c in out.columns), None
+    )
     if grp:
       out = out.sort_values(by=[grp])
 
@@ -375,7 +379,7 @@ def build_styled_excel(df_main, palette, font_name, font_pt):
 # --- EXECUTION ENGINE ---
 if st.button("🚀 Process All Client Files & Generate Deliverables"):
   if not uploaded_files:
-    st.warning("Please upload at least one file (PDF, Image, CSV, or Excel).")
+    st.warning("Please upload at least one file.")
     st.stop()
 
   for file in uploaded_files:
@@ -383,7 +387,6 @@ if st.button("🚀 Process All Client Files & Generate Deliverables"):
     ext = file.name.split(".")[-1].lower()
     base_name = file.name.rsplit(".", 1)[0]
 
-    # Case 1: Tabular Files (CSV / XLSX)
     if ext in ["csv", "xlsx"]:
       raw_df = (
           pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
@@ -432,99 +435,117 @@ if st.button("🚀 Process All Client Files & Generate Deliverables"):
             key=f"docx_{file.name}",
         )
 
-    # Case 2: PDF or Scanned Image Files
     elif ext in ["pdf", "png", "jpg", "jpeg", "webp"]:
       if not api_key:
         st.error(
-            "Enter your Gemini API Key in the sidebar to transcribe PDFs and"
-            " Scanned Images with 100% layout fidelity."
+            "⚠️ Please enter your Gemini API Key in the sidebar input box"
+            " above to transcribe PDFs and images."
         )
         continue
 
       with st.spinner(
           f"Transcribing {file.name} with senior data-entry precision..."
       ):
-        client = genai.Client(api_key=api_key)
-        file_bytes = file.read()
-        mime_map = {
-            "pdf": "application/pdf",
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "webp": "image/webp",
-        }
-        prompt = f"""
-        You are a senior data entry specialist with 12 years of experience.
-        Transcribe EVERY word, number, table, heading, and footer from this document with 100% accuracy.
-        Client instructions: {client_instructions or 'Preserve exact text, structure, tables, and footers.'}
-        Cleaning enabled: {enable_cleaning}. Sequence mode: {sequence_mode}.
+        try:
+          client = genai.Client(api_key=api_key)
+          file_bytes = file.read()
+          mime_map = {
+              "pdf": "application/pdf",
+              "png": "image/png",
+              "jpg": "image/jpeg",
+              "jpeg": "image/jpeg",
+              "webp": "image/webp",
+          }
+          prompt = f"""
+            You are a senior data entry specialist with 12 years of experience.
+            Transcribe EVERY word, number, table, heading, and footer from this document with 100% accuracy.
+            Client instructions: {client_instructions or 'Preserve exact text, structure, tables, and footers.'}
+            Cleaning enabled: {enable_cleaning}. Sequence mode: {sequence_mode}.
 
-        Return ONLY valid JSON in this exact schema:
-        {{
-          "footer": "exact footer text if present, else empty string",
-          "blocks": [
-            {{"type": "banner", "text": "Title or top header text", "bg_hex": "D9E2EC"}},
-            {{"type": "heading", "text": "Section heading"}},
-            {{"type": "paragraph", "text": "Full paragraph or bullet text", "bold": false}},
-            {{"type": "table", "rows": [["Col1", "Col2"], ["Val1", "Val2"]]}}
-          ]
-        }}
-        """
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                types.Part.from_bytes(
-                    data=file_bytes, mime_type=mime_map[ext]
-                ),
-                prompt,
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            ),
-        )
-        parsed = json.loads(response.text)
-
-      st.success(f"Extracted {len(parsed.get('blocks', []))} structured blocks.")
-
-      if "Word" in output_format or "Both" in output_format:
-        docx_bytes = build_docx_from_structured_json(
-            parsed, font_family, font_size, active_palette, include_footers
-        )
-        st.download_button(
-            label=f"📥 Download Word Deliverable ({base_name}_Deliverable.docx)",
-            data=docx_bytes,
-            file_name=f"{base_name}_Deliverable.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key=f"docx_{file.name}",
-        )
-
-      if "Excel" in output_format or "Both" in output_format:
-        tables = [
-            b["rows"]
-            for b in parsed.get("blocks", [])
-            if b.get("type") == "table" and len(b.get("rows", [])) > 1
-        ]
-        if tables:
-          t_rows = tables[0]
-          df_extracted = pd.DataFrame(t_rows[1:], columns=t_rows[0])
-        else:
-          df_extracted = pd.DataFrame(
-              [
-                  {"Content": b.get("text", "")}
-                  for b in parsed.get("blocks", [])
-                  if b.get("text")
+            Return ONLY valid JSON in this exact schema:
+            {{
+              "footer": "exact footer text if present, else empty string",
+              "blocks": [
+                {{"type": "banner", "text": "Title or top header text", "bg_hex": "D9E2EC"}},
+                {{"type": "heading", "text": "Section heading"}},
+                {{"type": "paragraph", "text": "Full paragraph or bullet text", "bold": false}},
+                {{"type": "table", "rows": [["Col1", "Col2"], ["Val1", "Val2"]]}}
               ]
+            }}
+            """
+          response = client.models.generate_content(
+              model="gemini-2.5-flash",
+              contents=[
+                  types.Part.from_bytes(
+                      data=file_bytes, mime_type=mime_map[ext]
+                  ),
+                  prompt,
+              ],
+              config=types.GenerateContentConfig(
+                  response_mime_type="application/json"
+              ),
           )
-        df_extracted = clean_tabular_dataframe(
-            df_extracted, enable_cleaning, sequence_mode
-        )
-        xlsx_bytes = build_styled_excel(
-            df_extracted, active_palette, font_family, font_size
-        )
-        st.download_button(
-            label=f"📥 Download Excel Deliverable ({base_name}_Deliverable.xlsx)",
-            data=xlsx_bytes,
-            file_name=f"{base_name}_Deliverable.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"xlsx_{file.name}",
-                )
+          parsed = json.loads(response.text)
+
+          st.success(
+              f"Extracted {len(parsed.get('blocks', []))} structured blocks."
+          )
+
+          if "Word" in output_format or "Both" in output_format:
+            docx_bytes = build_docx_from_structured_json(
+                parsed,
+                font_family,
+                font_size,
+                active_palette,
+                include_footers,
+            )
+            st.download_button(
+                label=(
+                    f"📥 Download Word Deliverable"
+                    f" ({base_name}_Deliverable.docx)"
+                ),
+                data=docx_bytes,
+                file_name=f"{base_name}_Deliverable.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"docx_{file.name}",
+            )
+
+          if "Excel" in output_format or "Both" in output_format:
+            tables = [
+                b["rows"]
+                for b in parsed.get("blocks", [])
+                if b.get("type") == "table" and len(b.get("rows", [])) > 1
+            ]
+            if tables:
+              t_rows = tables[0]
+              df_extracted = pd.DataFrame(t_rows[1:], columns=t_rows[0])
+            else:
+              df_extracted = pd.DataFrame(
+                  [
+                      {"Content": b.get("text", "")}
+                      for b in parsed.get("blocks", [])
+                      if b.get("text")
+                  ]
+              )
+            df_extracted = clean_tabular_dataframe(
+                df_extracted, enable_cleaning, sequence_mode
+            )
+            xlsx_bytes = build_styled_excel(
+                df_extracted, active_palette, font_family, font_size
+            )
+            st.download_button(
+                label=(
+                    f"📥 Download Excel Deliverable"
+                    f" ({base_name}_Deliverable.xlsx)"
+                ),
+                data=xlsx_bytes,
+                file_name=f"{base_name}_Deliverable.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"xlsx_{file.name}",
+            )
+
+        except Exception as e:
+          st.error(
+              f"Error during API processing: {e}. Please check your API key"
+              " and try again."
+          )
