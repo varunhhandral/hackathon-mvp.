@@ -1,269 +1,530 @@
 import io
+import json
+import os
+from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
+from google import genai
+from google.genai import types
+from openpyxl.styles import Alignment, Font, PatternFill
 import pandas as pd
+from PIL import Image
+from pypdf import PdfReader
 import streamlit as st
 
 st.set_page_config(
-    page_title="Universal Client Deliverable & Cleaning Utility", layout="wide"
+    page_title="Senior Data Entry & Document Conversion Studio",
+    layout="wide",
 )
 
-st.title("🚀 Universal Client Request & Data Cleaning Engine")
+# Color Palettes (Optional)
+PALETTES = {
+    "None (Plain Clean Office Format)": None,
+    "Corporate Slate Navy": {
+        "header_bg": "1E293B",
+        "sub_bg": "D9E2EC",
+        "zebra_bg": "F8FAFC",
+        "header_fg": "FFFFFF",
+    },
+    "Executive Emerald Green": {
+        "header_bg": "065F46",
+        "sub_bg": "D1FAE5",
+        "zebra_bg": "F0FDF4",
+        "header_fg": "FFFFFF",
+    },
+    "Royal Burgundy & Warm Grey": {
+        "header_bg": "7F1D1D",
+        "sub_bg": "FEE2E2",
+        "zebra_bg": "FAF5F5",
+        "header_fg": "FFFFFF",
+    },
+    "Classic Deep Indigo": {
+        "header_bg": "312E81",
+        "sub_bg": "E0E7FF",
+        "zebra_bg": "F5F7FF",
+        "header_fg": "FFFFFF",
+    },
+}
+
+st.title("🗂️ Universal Data Entry & Client Deliverable Studio")
 st.markdown(
-    "Upload **any client file** (Spreadsheet, CSV, or Document text), enter"
-    " your client's specific instructions, choose your formatting/color"
-    " palette, and generate a 100% polished deliverable with one click!"
+    "Upload **any client file** (`PDF`, `PNG/JPG Scanned Image`, `CSV`, or"
+    " `XLSX`), paste the exact **client brief**, configure cleaning, sequence,"
+    " font, and optional colour palette rules, and export ready-to-deliver"
+    " **Excel** or **Word (`.docx`)** files."
 )
 
-# 1. Universal File Uploader
-uploaded_file = st.file_uploader(
-    "Upload Client File (Excel, CSV, Text/Doc)", type=["csv", "xlsx", "txt"]
-)
+# --- SIDEBAR: 12-YEAR SENIOR DATA ENTRY CONTROLS ---
+with st.sidebar:
+  st.header("⚙️ Senior Data Entry Controls")
 
-# 2. Client Request & Customization Panel
-st.subheader("📝 Client Instructions & Styling Preferences")
-client_request = st.text_area(
-    "Paste or describe the client's request (e.g., 'Type out text in Arial"
-    " 11, clean Zomato data, calculate area-wise revenue, remove duplicates'):",
-    placeholder="Type client instructions here...",
-)
-
-col_opt1, col_opt2, col_opt3 = st.columns(3)
-with col_opt1:
-  enable_cleaning = st.checkbox(
-      "🧹 Enable Deep Data Cleaning & Deduplication", value=True
+  api_key = st.text_input(
+      "Gemini API Key (for PDF / Image OCR & Smart Parsing)",
+      value=os.environ.get("GEMINI_API_KEY", ""),
+      type="password",
   )
-with col_opt2:
-  enable_sequence = st.checkbox("🔢 Sort in Strict Sequence (ID / Date)", value=True)
-with col_opt3:
-  color_theme = st.selectbox(
-      "🎨 Excel Header Color Palette",
+
+  output_format = st.selectbox(
+      "1. Output Deliverable Format",
       [
-          "Slate Dark (Modern Office)",
-          "Navy Blue (Executive)",
-          "Emerald Green (Finance)",
-          "Charcoal Minimal",
+          "Microsoft Word (.docx)",
+          "Microsoft Excel (.xlsx)",
+          "Both (.docx & .xlsx)",
       ],
   )
 
-# Color theme dictionary for openpyxl styling
-theme_colors = {
-    "Slate Dark (Modern Office)": "1E293B",
-    "Navy Blue (Executive)": "1E3A8A",
-    "Emerald Green (Finance)": "065F46",
-    "Charcoal Minimal": "374151",
-}
-
-if uploaded_file is not None:
-  # Read file based on type
-  try:
-    if uploaded_file.name.endswith(".csv"):
-      df = pd.read_csv(uploaded_file)
-    elif uploaded_file.name.endswith(".xlsx"):
-      df = pd.read_excel(uploaded_file)
-    else:
-      # Handle text / doc uploads
-      stringio = io.StringIO(uploaded_file.getvalue().decode("utf-8"))
-      text_data = stringio.read()
-      df = pd.DataFrame(
-          {"Extracted_Document_Content": text_data.split("\n")}
-      )
-  except Exception as e:
-    st.error(f"Error reading file: {e}")
-    st.stop()
-
-  st.info(
-      f"Successfully loaded **{len(df):,} rows/lines** across"
-      f" **{len(df.columns)} columns** from `{uploaded_file.name}`."
+  enable_cleaning = st.checkbox(
+      "2. Enable Deep Data Cleaning (Deduplicate, Trim, Fix Numbers & Dates)",
+      value=True,
   )
 
-  # 3. Process & Generate Button
-  if st.button("✨ Process Deliverable & Apply Client Instructions"):
-    with st.spinner(
-        "Interpreting request, cleaning data, sequencing, and applying"
-        " theme..."
-    ):
-      cleaned_df = df.copy()
+  sequence_mode = st.selectbox(
+      "3. Sequence & Layout Ordering",
+      [
+          "Preserve Exact Document / Page Sequence",
+          "ID Sequence (Natural Numeric Order)",
+          "Chronological Date Sequence (Oldest → Newest)",
+          "Category / Area / Department Grouping",
+      ],
+  )
 
-      # A. Cleaning & Deduplication
-      dups_removed = 0
-      if enable_cleaning and len(cleaned_df.columns) > 1:
-        before_dups = len(cleaned_df)
-        cleaned_df = cleaned_df.drop_duplicates().reset_index(drop=True)
-        dups_removed = before_dups - len(cleaned_df)
+  use_palette = st.checkbox("4. Apply Custom Colour Palette", value=True)
+  selected_palette_name = st.selectbox(
+      "Select Colour Palette",
+      list(PALETTES.keys())[1:],
+      disabled=not use_palette,
+  )
+  active_palette = PALETTES[selected_palette_name] if use_palette else None
 
-        # Normalize text casing & strip whitespace
-        for col in cleaned_df.select_dtypes(include=["object"]).columns:
-          if "id" in col.lower():
-            cleaned_df[col] = cleaned_df[col].astype(str).str.strip().str.upper()
-          else:
-            cleaned_df[col] = (
-                cleaned_df[col]
-                .astype(str)
-                .str.strip()
-                .str.replace(r"\s+", " ", regex=True)
-                .str.title()
-            )
-          cleaned_df[col] = cleaned_df[col].replace(
-              ["Nan", "None", "Nat", ""], pd.NA
-          )
+  st.subheader("5. Typography & Layout Rules")
+  font_family = st.selectbox(
+      "Font Family", ["Arial", "Calibri", "Times New Roman", "Segoe UI"]
+  )
+  font_size = st.number_input(
+      "Font Size (pt)", min_value=8, max_value=24, value=11
+  )
+  include_footers = st.checkbox(
+      "Preserve Headers, Footers & Page Numbers", value=True
+  )
 
-        # Numerical & Currency normalization
-        for col in cleaned_df.columns:
-          if any(
-              kw in col.lower()
-              for kw in ["price", "fee", "salary", "revenue", "amount"]
-          ):
-            cleaned_df[col] = (
-                cleaned_df[col]
-                .astype(str)
-                .str.replace("Rs.", "", case=False, regex=False)
-                .str.replace("₹", "", regex=False)
-                .str.replace(",", "", regex=False)
-                .str.strip()
-            )
-            cleaned_df[col] = pd.to_numeric(
-                cleaned_df[col], errors="coerce"
-            ).fillna(0)
-          elif "date" in col.lower():
-            parsed = pd.to_datetime(cleaned_df[col], errors="coerce")
-            cleaned_df[col] = parsed.dt.strftime("%d %B %Y").fillna(
-                "Not Specified"
-            )
+# --- MAIN WORKSPACE ---
+col_left, col_right = st.columns([1.2, 1])
 
-        # Fill remaining missing text
-        for col in cleaned_df.select_dtypes(include=["object"]).columns:
-          cleaned_df[col] = cleaned_df[col].fillna("Not Specified")
+with col_left:
+  uploaded_files = st.file_uploader(
+      "Upload Client Source Files (PDF, Scanned Images, CSV, XLSX)",
+      type=["pdf", "png", "jpg", "jpeg", "webp", "csv", "xlsx"],
+      accept_multiple_files=True,
+  )
 
-      # B. Sequence Ordering
-      if enable_sequence and len(cleaned_df.columns) > 1:
-        id_col = next(
-            (
-                c
-                for c in cleaned_df.columns
-                if c.lower() in ["order id", "employee id", "id"]
-            ),
-            None,
-        )
-        date_col = next(
-            (c for c in cleaned_df.columns if "date" in c.lower()), None
-        )
+with col_right:
+  client_instructions = st.text_area(
+      "Client Request / Custom Formatting Instructions",
+      height=155,
+      placeholder=(
+          "Paste the client's exact email or instructions here (e.g., 'Convert"
+          " these scanned PDFs into Word documents using Arial size 11,"
+          " preserve footer info and background shading' OR 'Clean Zomato"
+          " orders and calculate area-wise revenue')..."
+      ),
+  )
 
-        if id_col:
-          cleaned_df["_sort_id"] = (
-              cleaned_df[id_col]
-              .astype(str)
-              .str.extract(r"(\d+)")
-              .astype(float)
-              .fillna(999999)
-          )
-          cleaned_df = cleaned_df.sort_values(
-              by=["_sort_id", id_col], ascending=True
-          ).drop(columns=["_sort_id"])
-        elif date_col:
-          cleaned_df = cleaned_df.sort_values(
-              by=[date_col], ascending=True
-          )
 
-      cleaned_df = cleaned_df.reset_index(drop=True)
+# --- HELPER FUNCTIONS ---
+def set_docx_cell_bg(cell, hex_color):
+  if not hex_color:
+    return
+  tcPr = cell._tc.get_or_add_tcPr()
+  shd = OxmlElement("w:shd")
+  shd.set(qn("w:val"), "clear")
+  shd.set(qn("w:color"), "auto")
+  shd.set(qn("w:fill"), hex_color)
+  tcPr.append(shd)
 
-      # C. Summary / Analysis Generation
-      if "Area" in cleaned_df.columns and "Total_Revenue" in cleaned_df.columns:
-        summary_df = (
-            cleaned_df.groupby("Area", as_index=False)
-            .agg(
-                Total_Orders=(cleaned_df.columns[0], "count"),
-                Total_Revenue=("Total_Revenue", "sum"),
-            )
-            .sort_values(by="Total_Revenue", ascending=False)
-        )
-      elif (
-          "Department" in cleaned_df.columns
-          and "Calculated_Salary" in cleaned_df.columns
-      ):
-        summary_df = (
-            cleaned_df.groupby("Department", as_index=False)
-            .agg(
-                Total_Employees=(cleaned_df.columns[0], "count"),
-                Total_Payout=("Calculated_Salary", "sum"),
-            )
-            .sort_values(by="Total_Payout", ascending=False)
-        )
-      else:
-        summary_df = cleaned_df.describe().reset_index()
 
-      st.session_state["processed_df"] = cleaned_df
-      st.session_state["summary_df"] = summary_df
-      st.session_state["dups_removed"] = dups_removed
-      st.session_state["theme_hex"] = theme_colors[color_theme]
+def build_docx_from_structured_json(
+    doc_json, font_name, font_pt, palette, keep_footer
+):
+  doc = Document()
+  normal_style = doc.styles["Normal"]
+  normal_style.font.name = font_name
+  normal_style.font.size = Pt(font_pt)
 
-  # 4. Display Results & Styled Export
-  if "processed_df" in st.session_state:
-    res_df = st.session_state["processed_df"]
-    sum_df = st.session_state["summary_df"]
-    hex_code = st.session_state["theme_hex"]
+  # Footer handling
+  footer_text = doc_json.get("footer", "")
+  if keep_footer and footer_text:
+    section = doc.sections[0]
+    fp = section.footer.paragraphs[0]
+    fr = fp.add_run(footer_text)
+    fr.font.name = font_name
+    fr.font.size = Pt(font_pt)
 
-    st.success("✨ Client request processed successfully!")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Rows Ready", f"{len(res_df):,}")
-    c2.metric("Duplicates Removed", st.session_state["dups_removed"])
-    c3.metric("Missing Cells", int(res_df.isnull().sum().sum()))
-
-    # Build Styled Excel Output with Chosen Color Palette & Alignments
-    from openpyxl.styles import Alignment, Font, PatternFill
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-      res_df.to_excel(writer, sheet_name="Cleaned_Data", index=False)
-      sum_df.to_excel(writer, sheet_name="Summary_Report", index=False)
-
-      header_fill = PatternFill(
-          start_color=hex_code, end_color=hex_code, fill_type="solid"
+  # Render blocks in exact sequence
+  for block in doc_json.get("blocks", []):
+    b_type = block.get("type", "paragraph")
+    if b_type == "banner":
+      tbl = doc.add_table(rows=1, cols=1)
+      cell = tbl.rows[0].cells[0]
+      cell.width = Inches(6.5)
+      bg = (
+          palette["header_bg"]
+          if palette
+          else block.get("bg_hex", "D9E2EC").replace("#", "")
       )
-      header_font = Font(color="FFFFFF", bold=True)
+      set_docx_cell_bg(cell, bg)
+      p = cell.paragraphs[0]
+      r = p.add_run(block.get("text", ""))
+      r.font.name = font_name
+      r.font.size = Pt(font_pt)
+      r.bold = True
+      if palette:
+        r.font.color.rgb = RGBColor(255, 255, 255)
+      doc.add_paragraph()
 
-      for sheet_name, df_data in [
-          ("Cleaned_Data", res_df),
-          ("Summary_Report", sum_df),
-      ]:
-        ws = writer.sheets[sheet_name]
-        ws.freeze_panes = "A2"
+    elif b_type == "heading":
+      p = doc.add_paragraph()
+      r = p.add_run(block.get("text", ""))
+      r.font.name = font_name
+      r.font.size = Pt(font_pt)
+      r.bold = True
 
-        for col_idx, col_name in enumerate(df_data.columns, 1):
-          is_numeric = pd.api.types.is_numeric_dtype(df_data[col_name])
-          align_type = "right" if is_numeric else "left"
+    elif b_type == "table":
+      rows_data = block.get("rows", [])
+      if rows_data:
+        max_cols = max(len(r) for r in rows_data)
+        tbl = doc.add_table(rows=len(rows_data), cols=max_cols)
+        for r_idx, row_vals in enumerate(rows_data):
+          for c_idx in range(max_cols):
+            val = row_vals[c_idx] if c_idx < len(row_vals) else ""
+            cell = tbl.rows[r_idx].cells[c_idx]
+            if r_idx == 0 and palette:
+              set_docx_cell_bg(cell, palette["header_bg"])
+            elif r_idx % 2 == 1 and palette:
+              set_docx_cell_bg(cell, palette["zebra_bg"])
+            p = cell.paragraphs[0]
+            run = p.add_run(str(val))
+            run.font.name = font_name
+            run.font.size = Pt(font_pt)
+            if r_idx == 0:
+              run.bold = True
+              if palette:
+                run.font.color.rgb = RGBColor(255, 255, 255)
+        doc.add_paragraph()
 
-          for row_idx in range(1, len(df_data) + 2):
-            cell = ws.cell(row=row_idx, column=col_idx)
-            if row_idx == 1:
-              cell.fill = header_fill
-              cell.font = header_font
-              cell.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-              cell.alignment = Alignment(
-                  horizontal=align_type, vertical="center"
-              )
+    else:
+      p = doc.add_paragraph()
+      r = p.add_run(block.get("text", ""))
+      r.font.name = font_name
+      r.font.size = Pt(font_pt)
+      if block.get("bold", False):
+        r.bold = True
 
-        for col_cells in ws.columns:
-          max_len = 0
-          col_letter = col_cells[0].column_letter
-          for cell in col_cells:
-            val_len = len(str(cell.value or ""))
-            if val_len > max_len:
-              max_len = val_len
-          ws.column_dimensions[col_letter].width = min(max_len + 4, 35)
+  buf = io.BytesIO()
+  doc.save(buf)
+  return buf.getvalue()
 
-    st.download_button(
-        label=(
-            f"📥 Download Styled Client Deliverable ({len(res_df):,} Rows +"
-            " Summary)"
-        ),
-        data=output.getvalue(),
-        file_name="Final_Client_Deliverable.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+
+def clean_tabular_dataframe(df, do_clean, seq_mode):
+  out = df.copy()
+  if do_clean:
+    for col in out.select_dtypes(include=["object"]).columns:
+      if "id" in col.lower():
+        out[col] = out[col].astype(str).str.strip().str.upper()
+      else:
+        out[col] = (
+            out[col]
+            .astype(str)
+            .str.strip()
+            .str.replace(r"\s+", " ", regex=True)
+            .str.title()
+        )
+      out[col] = out[col].replace(["Nan", "None", "Nat", ""], pd.NA)
+
+    out = out.drop_duplicates().reset_index(drop=True)
+
+    date_col = next((c for c in out.columns if "date" in c.lower()), None)
+    if date_col:
+      out["_sort_dt"] = pd.to_datetime(out[date_col], errors="coerce")
+      out[date_col] = out["_sort_dt"].dt.strftime("%d %B %Y").fillna(
+          "Not Specified"
+      )
+
+    word_map = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5, "Six": 6}
+    for col in ["Quantity", "Rating"]:
+      if col in out.columns:
+        out[col] = pd.to_numeric(
+            out[col].replace(word_map), errors="coerce"
+        ).fillna(1 if col == "Quantity" else 4.0)
+        if col == "Quantity":
+          out[col] = out[col].astype(int)
+
+    for col in [
+        "Item Price",
+        "Delivery Fee",
+        "Basic Salary",
+        "Salary",
+        "Price",
+    ]:
+      if col in out.columns:
+        out[col] = (
+            out[col]
+            .astype(str)
+            .str.replace(r"(?i)rs\.?|₹|,", "", regex=True)
+            .str.strip()
+        )
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
+
+    if all(
+        c in out.columns for c in ["Quantity", "Item Price", "Delivery Fee"]
+    ):
+      out["Total_Revenue"] = (out["Quantity"] * out["Item Price"]) + out[
+          "Delivery Fee"
+      ]
+
+    for col in out.select_dtypes(include=["object"]).columns:
+      out[col] = out[col].fillna("Not Specified")
+
+  # Sequence sorting
+  id_col = next(
+      (
+          c
+          for c in out.columns
+          if c.lower() in ["order id", "employee id", "id"]
+      ),
+      None,
+  )
+  if "ID Sequence" in seq_mode and id_col:
+    out["_id_num"] = (
+        out[id_col].astype(str).str.extract(r"(\d+)").astype(float).fillna(9e9)
     )
+    out = out.sort_values(by=["_id_num", id_col])
+  elif "Chronological" in seq_mode and "_sort_dt" in out.columns:
+    out = out.sort_values(by=["_sort_dt"])
+  elif "Category" in seq_mode:
+    grp = next((c for c in ["Area", "Department", "Category"] if c in out.columns), None)
+    if grp:
+      out = out.sort_values(by=[grp])
 
-    st.subheader("📊 Summary & Analysis Preview")
-    st.dataframe(sum_df, use_container_width=True)
+  out = out.drop(
+      columns=[c for c in ["_sort_dt", "_id_num"] if c in out.columns]
+  ).reset_index(drop=True)
+  return out
 
-    st.subheader("✨ Cleaned Dataset Preview")
-    st.dataframe(res_df, use_container_width=True, height=400)
-                             
+
+def build_styled_excel(df_main, palette, font_name, font_pt):
+  output = io.BytesIO()
+  with pd.ExcelWriter(output, engine="openpyxl") as writer:
+    df_main.to_excel(writer, sheet_name="Cleaned_Deliverable", index=False)
+    ws = writer.sheets["Cleaned_Deliverable"]
+    ws.freeze_panes = "A2"
+
+    hdr_fill = (
+        PatternFill(
+            start_color=palette["header_bg"],
+            end_color=palette["header_bg"],
+            fill_type="solid",
+        )
+        if palette
+        else None
+    )
+    zebra_fill = (
+        PatternFill(
+            start_color=palette["zebra_bg"],
+            end_color=palette["zebra_bg"],
+            fill_type="solid",
+        )
+        if palette
+        else None
+    )
+    hdr_font = Font(
+        name=font_name,
+        size=font_pt,
+        bold=True,
+        color=palette["header_fg"] if palette else "000000",
+    )
+    body_font = Font(name=font_name, size=font_pt)
+
+    for col_idx, col_name in enumerate(df_main.columns, 1):
+      is_num = pd.api.types.is_numeric_dtype(df_main[col_name])
+      align = Alignment(
+          horizontal="right" if is_num else "left", vertical="center"
+      )
+      for row_idx in range(1, len(df_main) + 2):
+        cell = ws.cell(row=row_idx, column=col_idx)
+        if row_idx == 1:
+          if hdr_fill:
+            cell.fill = hdr_fill
+          cell.font = hdr_font
+          cell.alignment = Alignment(horizontal="center", vertical="center")
+        else:
+          cell.font = body_font
+          cell.alignment = align
+          if zebra_fill and row_idx % 2 == 0:
+            cell.fill = zebra_fill
+
+    for col_cells in ws.columns:
+      max_len = max(len(str(c.value or "")) for c in col_cells)
+      ws.column_dimensions[col_cells[0].column_letter].width = min(
+          max_len + 4, 40
+      )
+
+  return output.getvalue()
+
+
+# --- EXECUTION ENGINE ---
+if st.button("🚀 Process All Client Files & Generate Deliverables"):
+  if not uploaded_files:
+    st.warning("Please upload at least one file (PDF, Image, CSV, or Excel).")
+    st.stop()
+
+  for file in uploaded_files:
+    st.markdown(f"### 📄 Processing: `{file.name}`")
+    ext = file.name.split(".")[-1].lower()
+    base_name = file.name.rsplit(".", 1)[0]
+
+    # Case 1: Tabular Files (CSV / XLSX)
+    if ext in ["csv", "xlsx"]:
+      raw_df = (
+          pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
+      )
+      clean_df = clean_tabular_dataframe(
+          raw_df, enable_cleaning, sequence_mode
+      )
+      st.dataframe(clean_df, use_container_width=True, height=300)
+
+      if "Excel" in output_format or "Both" in output_format:
+        xlsx_bytes = build_styled_excel(
+            clean_df, active_palette, font_family, font_size
+        )
+        st.download_button(
+            label=f"📥 Download Cleaned Excel ({base_name}_Cleaned.xlsx)",
+            data=xlsx_bytes,
+            file_name=f"{base_name}_Cleaned.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"xlsx_{file.name}",
+        )
+
+      if "Word" in output_format or "Both" in output_format:
+        doc_struct = {
+            "footer": f"{base_name} | Client Deliverable",
+            "blocks": [
+                {"type": "banner", "text": f"CLEANED REPORT: {base_name}"},
+                {
+                    "type": "table",
+                    "rows": [clean_df.columns.tolist()]
+                    + clean_df.head(500).astype(str).values.tolist(),
+                },
+            ],
+        }
+        docx_bytes = build_docx_from_structured_json(
+            doc_struct,
+            font_family,
+            font_size,
+            active_palette,
+            include_footers,
+        )
+        st.download_button(
+            label=f"📥 Download Word Deliverable ({base_name}_Cleaned.docx)",
+            data=docx_bytes,
+            file_name=f"{base_name}_Cleaned.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"docx_{file.name}",
+        )
+
+    # Case 2: PDF or Scanned Image Files
+    elif ext in ["pdf", "png", "jpg", "jpeg", "webp"]:
+      if not api_key:
+        st.error(
+            "Enter your Gemini API Key in the sidebar to transcribe PDFs and"
+            " Scanned Images with 100% layout fidelity."
+        )
+        continue
+
+      with st.spinner(
+          f"Transcribing {file.name} with senior data-entry precision..."
+      ):
+        client = genai.Client(api_key=api_key)
+        file_bytes = file.read()
+        mime_map = {
+            "pdf": "application/pdf",
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "webp": "image/webp",
+        }
+        prompt = f"""
+        You are a senior data entry specialist with 12 years of experience.
+        Transcribe EVERY word, number, table, heading, and footer from this document with 100% accuracy.
+        Client instructions: {client_instructions or 'Preserve exact text, structure, tables, and footers.'}
+        Cleaning enabled: {enable_cleaning}. Sequence mode: {sequence_mode}.
+
+        Return ONLY valid JSON in this exact schema:
+        {{
+          "footer": "exact footer text if present, else empty string",
+          "blocks": [
+            {{"type": "banner", "text": "Title or top header text", "bg_hex": "D9E2EC"}},
+            {{"type": "heading", "text": "Section heading"}},
+            {{"type": "paragraph", "text": "Full paragraph or bullet text", "bold": false}},
+            {{"type": "table", "rows": [["Col1", "Col2"], ["Val1", "Val2"]]}}
+          ]
+        }}
+        """
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_bytes(
+                    data=file_bytes, mime_type=mime_map[ext]
+                ),
+                prompt,
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            ),
+        )
+        parsed = json.loads(response.text)
+
+      st.success(f"Extracted {len(parsed.get('blocks', []))} structured blocks.")
+
+      if "Word" in output_format or "Both" in output_format:
+        docx_bytes = build_docx_from_structured_json(
+            parsed, font_family, font_size, active_palette, include_footers
+        )
+        st.download_button(
+            label=f"📥 Download Word Deliverable ({base_name}_Deliverable.docx)",
+            data=docx_bytes,
+            file_name=f"{base_name}_Deliverable.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"docx_{file.name}",
+        )
+
+      if "Excel" in output_format or "Both" in output_format:
+        tables = [
+            b["rows"]
+            for b in parsed.get("blocks", [])
+            if b.get("type") == "table" and len(b.get("rows", [])) > 1
+        ]
+        if tables:
+          t_rows = tables[0]
+          df_extracted = pd.DataFrame(t_rows[1:], columns=t_rows[0])
+        else:
+          df_extracted = pd.DataFrame(
+              [
+                  {"Content": b.get("text", "")}
+                  for b in parsed.get("blocks", [])
+                  if b.get("text")
+              ]
+          )
+        df_extracted = clean_tabular_dataframe(
+            df_extracted, enable_cleaning, sequence_mode
+        )
+        xlsx_bytes = build_styled_excel(
+            df_extracted, active_palette, font_family, font_size
+        )
+        st.download_button(
+            label=f"📥 Download Excel Deliverable ({base_name}_Deliverable.xlsx)",
+            data=xlsx_bytes,
+            file_name=f"{base_name}_Deliverable.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"xlsx_{file.name}",
+                )
