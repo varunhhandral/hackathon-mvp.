@@ -3,5 +3,4 @@ pandas
 openpyxl
 python-docx
 pypdf
-model="gemini-3.8-flash"
 Pillow
