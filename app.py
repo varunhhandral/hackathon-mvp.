@@ -72,6 +72,10 @@ with st.sidebar:
       "Gemini API Key", value=default_key, type="password"
   )
 
+  # OPTION 2 FALLBACK CHECK: If sidebar is blank, set your fallback key here if needed
+  if not api_key:
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+
   output_format = st.selectbox(
       "1. Output Deliverable Format",
       [
@@ -548,4 +552,5 @@ if st.button("🚀 Process All Client Files & Generate Deliverables"):
           st.error(
               f"Error during API processing: {e}. Please check your API key"
               " and try again."
-          )
+    )
+          
