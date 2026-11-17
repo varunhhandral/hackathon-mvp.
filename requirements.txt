@@ -1,7 +1,8 @@
 streamlit
-google-genai
-pydantic
 pandas
 openpyxl
 python-docx
 pillow
+pdfplumber
+rapidocr-onnxruntime
+numpy
