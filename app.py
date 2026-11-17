@@ -7,7 +7,6 @@ from openpyxl.styles import Font, PatternFill
 import pandas as pd
 import pdfplumber
 from PIL import Image
-from rapidocr_onnxruntime import RapidOCR
 import streamlit as st
 
 # --- PAGE CONFIG ---
@@ -20,6 +19,8 @@ st.set_page_config(
 
 @st.cache_resource
 def load_ocr_engine():
+  from rapidocr_onnxruntime import RapidOCR
+
   return RapidOCR()
 
 
@@ -81,39 +82,56 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
   df.dropna(how="all", inplace=True)
   df.dropna(axis=1, how="all", inplace=True)
 
-  # 3. Trim whitespace inside string cells
-  for col in df.select_dtypes(include=["object", "string"]).columns:
-    df[col] = df[col].apply(
-        lambda x: re.sub(r"\s+", " ", x).strip() if isinstance(x, str) else x
-    )
+  # 3. Trim whitespace and apply column-specific standardization
+  for col in df.columns:
+    col_lower = col.lower()
 
-    # Attempt date standardization if column name hints at a date
-    if any(k in col.lower() for k in ["date", "dob", "time", "created"]):
-      parsed = pd.to_datetime(df[col], errors="coerce")
-      if parsed.notna().mean() > 0.6:
-        df[col] = parsed.dt.strftime("%Y-%m-%d").fillna(df[col])
-
-    # Attempt numeric cleanup if values look like currency/formatted numbers
-    sample = df[col].dropna().astype(str)
-    if (
-        len(sample) > 0
-        and sample.str.match(r"^[₹$€£]?\s*-?[\d,]+(\.\d+)?$").mean() > 0.7
-    ):
-      cleaned_num = (
-          df[col].astype(str).str.replace(r"[₹$€£,\s]", "", regex=True)
+    if df[col].dtype == "object" or str(df[col].dtype) == "string":
+      df[col] = df[col].apply(
+          lambda x: re.sub(r"\s+", " ", x).strip() if isinstance(x, str) else x
       )
-      try:
-        df[col] = pd.to_numeric(cleaned_num)
-      except (ValueError, TypeError):
-        pass
-  # 4. Deduplicate rows
+
+    # Standardize Order IDs to uppercase (e.g., zm-1864 -> ZM-1864)
+    if "order" in col_lower and "id" in col_lower:
+      df[col] = df[col].apply(
+          lambda x: x.upper() if isinstance(x, str) else x
+      )
+
+    # Standardize Restaurant & Customer Names / Cities to Title Case
+    elif any(k in col_lower for k in ["restaurant", "customer", "name", "city"]):
+      df[col] = df[col].apply(
+          lambda x: x.title() if isinstance(x, str) else x
+      )
+
+    # 4. Standardize ALL Dates to numeric DD-MM-YYYY (date - month - year)
+    if any(k in col_lower for k in ["date", "dob", "time", "created"]):
+      parsed = pd.to_datetime(
+          df[col], format="mixed", dayfirst=True, errors="coerce"
+      )
+      df[col] = parsed.dt.strftime("%d-%m-%Y").fillna(df[col])
+
+    # 5. Turn Rating & Quantity into pure numeric values
+    elif any(k in col_lower for k in ["rating", "quantity", "qty"]):
+      cleaned_num = df[col].astype(str).str.extract(r"(-?\d+(?:\.\d+)?)")[0]
+      df[col] = pd.to_numeric(cleaned_num, errors="coerce")
+
+    # 6. Format Item Price, Delivery Fee & Basic Salary in Rupees (₹)
+    elif any(
+        k in col_lower for k in ["price", "delivery fee", "fee", "salary"]
+    ):
+      cleaned_num = df[col].astype(str).str.extract(r"(-?\d+(?:,\d+)*(?:\.\d+)?)")[0]
+      cleaned_num = cleaned_num.str.replace(",", "", regex=False)
+      nums = pd.to_numeric(cleaned_num, errors="coerce")
+      df[col] = nums.apply(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "")
+
+  # 7. Deduplicate rows
   before_count = len(df)
   df.drop_duplicates(inplace=True)
   removed = before_count - len(df)
   if removed > 0:
     flags.append(f"Removed {removed} duplicate row(s).")
 
-  # 5. Flag rows with missing values for quick QA
+  # 8. Flag rows with missing values
   missing_rows = df[df.isna().any(axis=1)].index.tolist()
   if missing_rows:
     preview_idx = ", ".join(str(i + 1) for i in missing_rows[:10])
@@ -128,13 +146,29 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
 def apply_ordering(df: pd.DataFrame) -> pd.DataFrame:
   if df.empty or len(df.columns) == 0:
     return df
+
+  # Natural numeric sort by Order ID if present (e.g., ZM-0001, ZM-0002 ... ZM-2000)
+  order_cols = [
+      c for c in df.columns if "order" in c.lower() and "id" in c.lower()
+  ]
+  if order_cols and sequence_rule == "Preserve Exact Document / Page Sequence":
+    col = order_cols[0]
+    df["_sort_num"] = pd.to_numeric(
+        df[col].astype(str).str.extract(r"(\d+)")[0], errors="coerce"
+    )
+    df = (
+        df.sort_values(by=["_sort_num", col], na_position="last")
+        .drop(columns=["_sort_num"])
+        .reset_index(drop=True)
+    )
+    return df
+
   first_col = df.columns[0]
   if sequence_rule == "Sort Alphabetically by First Column":
     return df.sort_values(
         by=first_col, key=lambda s: s.astype(str).str.lower()
     ).reset_index(drop=True)
   elif sequence_rule == "Group by Category / Section":
-    # Pick lowest-cardinality text column to group by, fallback to first column
     cat_cols = [
         c
         for c in df.columns
@@ -144,6 +178,7 @@ def apply_ordering(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values(
         by=group_col, key=lambda s: s.astype(str).str.lower()
     ).reset_index(drop=True)
+
   return df
 
 
@@ -285,7 +320,6 @@ def build_word(
       if apply_palette:
         run.font.color.rgb = RGBColor(*rgb_color)
 
-  # Cap Word table rows to 500 to avoid sluggish browser/Word rendering on huge CSVs
   export_df = df.head(500)
   for _, row in export_df.iterrows():
     row_cells = table.add_row().cells
