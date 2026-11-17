@@ -1,13 +1,13 @@
 import io
+import re
 from docx import Document
 from docx.shared import Pt, RGBColor
-from google import genai
-from google.genai import types
-import openpyxl
+import numpy as np
 from openpyxl.styles import Font, PatternFill
 import pandas as pd
+import pdfplumber
 from PIL import Image
-from pydantic import BaseModel, Field
+from rapidocr_onnxruntime import RapidOCR
 import streamlit as st
 
 # --- PAGE CONFIG ---
@@ -18,35 +18,9 @@ st.set_page_config(
 )
 
 
-# --- PYDANTIC SCHEMA FOR STRUCTURED OUTPUTS ---
-class DataRow(BaseModel):
-  cells: list[str] = Field(
-      description="Values for each column in exact header order."
-  )
-  confidence_note: str | None = Field(
-      default=None,
-      description=(
-          "Flag if any text in this row was blurry, illegible, or ambiguous."
-      ),
-  )
-
-
-class ExtractedDeliverable(BaseModel):
-  document_title: str = Field(
-      description="Clean title for the report or spreadsheet."
-  )
-  summary_notes: str = Field(
-      description=(
-          "Brief overview or preserved header/footer metadata from the"
-          " document."
-      )
-  )
-  column_headers: list[str] = Field(
-      description="Standardized column names in exact sequence."
-  )
-  rows: list[DataRow] = Field(
-      description="All extracted data rows, cleaned and standardized."
-  )
+@st.cache_resource
+def load_ocr_engine():
+  return RapidOCR()
 
 
 # --- COLOUR PALETTE MAPPING ---
@@ -60,7 +34,6 @@ PALETTES = {
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
   st.header("⚙️ Senior Data Entry Controls")
-  api_key = st.text_input("Gemini API Key", type="password")
 
   output_format = st.selectbox(
       "1. Output Deliverable Format",
@@ -96,66 +69,151 @@ with st.sidebar:
   )
 
 
-# --- EXTRACTION ENGINE ---
-def process_uploaded_file(
-    uploaded_file, client: genai.Client, instructions: str
-) -> ExtractedDeliverable:
-  file_bytes = uploaded_file.getvalue()
-  mime_type = uploaded_file.type
-  file_name = uploaded_file.name.lower()
+# --- DETERMINISTIC DATA CLEANING ENGINE ---
+def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+  flags = []
+  df = df.copy()
 
-  cleaning_rules = (
-      "Apply deep data cleaning: trim extra whitespace, standardize all dates"
-      " to YYYY-MM-DD, and clean number formatting."
-      if deep_clean
-      else "Extract raw values verbatim without altering date or number formats."
-  )
-  header_footer_rules = (
-      "Include any document header, footer, or page number info inside"
-      " summary_notes."
-      if preserve_headers_footers
-      else "Ignore page headers and footers."
-  )
+  # 1. Clean column headers
+  df.columns = [re.sub(r"\s+", " ", str(c)).strip() for c in df.columns]
 
-  prompt = f"""
-    You are a Senior Data Entry Specialist. Extract all tabular and structured data from the provided file.
-    
-    Client Instructions: {instructions if instructions.strip() else "Extract cleanly and accurately."}
-    Cleaning Rules: {cleaning_rules}
-    Ordering Rule: {sequence_rule}
-    Metadata Rule: {header_footer_rules}
-    
-    Ensure every row in `rows` has the exact same number of elements in `cells` as `column_headers`.
-    If a cell is empty, use an empty string "".
-    """
+  # 2. Drop completely empty rows and columns
+  df.dropna(how="all", inplace=True)
+  df.dropna(axis=1, how="all", inplace=True)
 
-  # Handle CSV / XLSX directly via Pandas + Gemini structuring
-  if file_name.endswith(".csv"):
-    df_raw = pd.read_csv(io.BytesIO(file_bytes))
-    content_payload = [prompt, f"Raw CSV Data:\n{df_raw.to_csv(index=False)}"]
-  elif file_name.endswith(".xlsx"):
-    df_raw = pd.read_excel(io.BytesIO(file_bytes))
-    content_payload = [prompt, f"Raw Excel Data:\n{df_raw.to_csv(index=False)}"]
-  elif file_name.endswith(".pdf"):
-    pdf_part = types.Part.from_bytes(
-        data=file_bytes, mime_type="application/pdf"
+  # 3. Trim whitespace inside string cells
+  for col in df.select_dtypes(include=["object", "string"]).columns:
+    df[col] = df[col].apply(
+        lambda x: re.sub(r"\s+", " ", x).strip() if isinstance(x, str) else x
     )
-    content_payload = [pdf_part, prompt]
-  else:
-    # Images (PNG, JPG, WEBP)
-    img = Image.open(io.BytesIO(file_bytes))
-    content_payload = [img, prompt]
 
-  response = client.models.generate_content(
-      model="gemini-2.5-flash",
-      contents=content_payload,
-      config=types.GenerateContentConfig(
-          response_mime_type="application/json",
-          response_schema=ExtractedDeliverable,
-          temperature=0.1,
-      ),
-  )
-  return response.parsed
+    # Attempt date standardization if column name hints at a date
+    if any(k in col.lower() for k in ["date", "dob", "time", "created"]):
+      parsed = pd.to_datetime(df[col], errors="coerce")
+      if parsed.notna().mean() > 0.6:
+        df[col] = parsed.dt.strftime("%Y-%m-%d").fillna(df[col])
+
+    # Attempt numeric cleanup if values look like currency/formatted numbers
+    sample = df[col].dropna().astype(str)
+    if (
+        len(sample) > 0
+        and sample.str.match(r"^[₹$€£]?\s*-?[\d,]+(\.\d+)?$").mean() > 0.7
+    ):
+      cleaned_num = (
+          df[col].astype(str).str.replace(r"[₹$€£,\s]", "", regex=True)
+      )
+      df[col] = pd.to_numeric(cleaned_num, errors="ignore")
+
+  # 4. Deduplicate rows
+  before_count = len(df)
+  df.drop_duplicates(inplace=True)
+  removed = before_count - len(df)
+  if removed > 0:
+    flags.append(f"Removed {removed} duplicate row(s).")
+
+  # 5. Flag rows with missing values for quick QA
+  missing_rows = df[df.isna().any(axis=1)].index.tolist()
+  if missing_rows:
+    preview_idx = ", ".join(str(i + 1) for i in missing_rows[:10])
+    extra = (
+        f" (+{len(missing_rows) - 10} more)" if len(missing_rows) > 10 else ""
+    )
+    flags.append(f"Rows with blank/missing cells: {preview_idx}{extra}")
+
+  return df.reset_index(drop=True), flags
+
+
+def apply_ordering(df: pd.DataFrame) -> pd.DataFrame:
+  if df.empty or len(df.columns) == 0:
+    return df
+  first_col = df.columns[0]
+  if sequence_rule == "Sort Alphabetically by First Column":
+    return df.sort_values(
+        by=first_col, key=lambda s: s.astype(str).str.lower()
+    ).reset_index(drop=True)
+  elif sequence_rule == "Group by Category / Section":
+    # Pick lowest-cardinality text column to group by, fallback to first column
+    cat_cols = [
+        c
+        for c in df.columns
+        if 1 < df[c].nunique(dropna=True) <= max(20, len(df) // 5)
+    ]
+    group_col = cat_cols[0] if cat_cols else first_col
+    return df.sort_values(
+        by=group_col, key=lambda s: s.astype(str).str.lower()
+    ).reset_index(drop=True)
+  return df
+
+
+# --- LOCAL FILE EXTRACTION (NO API KEY) ---
+def extract_local_file(uploaded_file) -> tuple[pd.DataFrame, str]:
+  file_bytes = uploaded_file.getvalue()
+  file_name = uploaded_file.name.lower()
+  metadata_notes = []
+
+  if file_name.endswith(".csv"):
+    df = pd.read_csv(io.BytesIO(file_bytes))
+    metadata_notes.append(f"Source: CSV ({len(df)} raw rows)")
+
+  elif file_name.endswith(".xlsx"):
+    excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
+    df = excel_file.parse(excel_file.sheet_names[0])
+    metadata_notes.append(
+        f"Source: Excel Sheet '{excel_file.sheet_names[0]}' ({len(df)} raw"
+        " rows)"
+    )
+
+  elif file_name.endswith(".pdf"):
+    all_tables = []
+    text_lines = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+      metadata_notes.append(f"Total Pages: {len(pdf.pages)}")
+      for page_num, page in enumerate(pdf.pages, start=1):
+        tables = page.extract_tables()
+        if tables:
+          for t in tables:
+            if len(t) > 1:
+              headers = [
+                  str(h).strip() if h else f"Col_{i+1}"
+                  for i, h in enumerate(t[0])
+              ]
+              page_df = pd.DataFrame(t[1:], columns=headers)
+              if preserve_headers_footers:
+                page_df["Page_No"] = page_num
+              all_tables.append(page_df)
+        else:
+          raw_text = page.extract_text() or ""
+          for line in raw_text.splitlines():
+            if line.strip():
+              text_lines.append({"Page_No": page_num, "Extracted_Text": line})
+
+    if all_tables:
+      df = pd.concat(all_tables, ignore_index=True)
+    else:
+      df = pd.DataFrame(text_lines)
+
+  else:
+    # Scanned Image OCR (PNG, JPG, WEBP)
+    ocr = load_ocr_engine()
+    img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+    result, _ = ocr(np.array(img))
+    if result:
+      rows = []
+      for item in result:
+        text = item[1]
+        confidence = round(float(item[2]) * 100, 1)
+        rows.append(
+            {"Extracted_Text": text, "OCR_Confidence_%": f"{confidence}%"}
+        )
+      df = pd.DataFrame(rows)
+      metadata_notes.append(
+          f"OCR Extracted {len(df)} text blocks from scanned image."
+      )
+    else:
+      df = pd.DataFrame(columns=["Extracted_Text"])
+      metadata_notes.append("No readable text detected in image.")
+
+  return df, " | ".join(metadata_notes)
 
 
 # --- DELIVERABLE BUILDERS ---
@@ -167,7 +225,6 @@ def build_excel(
     df.to_excel(writer, index=False, sheet_name="Cleaned_Data", startrow=2)
     ws = writer.sheets["Cleaned_Data"]
 
-    # Title styling
     ws["A1"] = title
     ws["A1"].font = Font(
         name=font_family, size=font_size + 3, bold=True, color=hex_color
@@ -176,7 +233,6 @@ def build_excel(
       ws["A2"] = summary
       ws["A2"].font = Font(name=font_family, size=font_size - 1, italic=True)
 
-    # Header styling
     header_fill = PatternFill(
         start_color=hex_color, end_color=hex_color, fill_type="solid"
     )
@@ -199,12 +255,10 @@ def build_word(
 ) -> bytes:
   doc = Document()
 
-  # Base document font
   style = doc.styles["Normal"]
   style.font.name = font_family
   style.font.size = Pt(font_size)
 
-  # Title
   heading = doc.add_heading(title, level=1)
   run = heading.runs[0]
   run.font.name = font_family
@@ -216,7 +270,6 @@ def build_word(
     p = doc.add_paragraph(summary)
     p.runs[0].italic = True
 
-  # Table
   table = doc.add_table(rows=1, cols=len(df.columns))
   table.style = "Table Grid"
 
@@ -230,13 +283,21 @@ def build_word(
       if apply_palette:
         run.font.color.rgb = RGBColor(*rgb_color)
 
-  for _, row in df.iterrows():
+  # Cap Word table rows to 500 to avoid sluggish browser/Word rendering on huge CSVs
+  export_df = df.head(500)
+  for _, row in export_df.iterrows():
     row_cells = table.add_row().cells
     for i, val in enumerate(row):
       row_cells[i].text = "" if pd.isna(val) else str(val)
       for run in row_cells[i].paragraphs[0].runs:
         run.font.name = font_family
         run.font.size = Pt(font_size)
+
+  if len(df) > 500:
+    doc.add_paragraph(
+        f"Note: Showing first 500 of {len(df)} rows. Export as .xlsx for the"
+        " full dataset."
+    )
 
   buffer = io.BytesIO()
   doc.save(buffer)
@@ -247,9 +308,9 @@ def build_word(
 st.title("🗂️ Universal Data Entry & Client Deliverable Studio")
 st.markdown(
     "Upload **any client file** (`PDF`, `PNG/JPG Scanned Image`, `CSV`, or"
-    " `XLSX`), paste the exact **client brief**, configure cleaning, sequence,"
-    " font, and optional colour palette rules, and export ready-to-deliver"
-    " **Excel** or **Word (`.docx`)** files."
+    " `XLSX`), configure cleaning, sequence, font, and optional colour palette"
+    " rules, and export ready-to-deliver **Excel** or **Word (`.docx`)** files"
+    " — **100% locally with zero API keys**."
 )
 
 col1, col2 = st.columns(2)
@@ -261,49 +322,43 @@ with col1:
   )
 with col2:
   client_instructions = st.text_area(
-      "Client Request / Custom Formatting Instructions",
+      "Client Brief / Deliverable Notes (Included in Report Header)",
       placeholder=(
-          "Paste client instructions here (e.g., 'Convert scanned PDFs into"
-          " Word using Arial size 11, preserve footer info')..."
+          "Add project title or client notes (e.g., 'Q3 Zomato Cleaned"
+          " Dataset - Prepared for Client Review')..."
       ),
       height=135,
   )
 
 if st.button("🚀 Process All Client Files & Generate Deliverables"):
-  if not api_key:
-    st.error("Please enter your Gemini API Key in the left sidebar.")
-  elif not uploaded_files:
+  if not uploaded_files:
     st.warning("Please upload at least one client file.")
   else:
-    client = genai.Client(api_key=api_key)
     st.session_state["results"] = []
 
     for f in uploaded_files:
-      with st.spinner(f"Extracting & cleaning `{f.name}`..."):
+      with st.spinner(f"Processing `{f.name}`..."):
         try:
-          extracted = process_uploaded_file(f, client, client_instructions)
+          df, meta_summary = extract_local_file(f)
+          flags = []
 
-          # Normalize row lengths to match headers safely
-          num_cols = len(extracted.column_headers)
-          normalized_rows = []
-          flagged_notes = []
-
-          for idx, r in enumerate(extracted.rows):
-            padded = (r.cells + [""] * num_cols)[:num_cols]
-            normalized_rows.append(padded)
-            if r.confidence_note:
-              flagged_notes.append(f"Row {idx + 1}: {r.confidence_note}")
-
-          df = pd.DataFrame(normalized_rows, columns=extracted.column_headers)
           if deep_clean:
-            df = df.drop_duplicates()
+            df, flags = clean_dataframe(df)
+
+          df = apply_ordering(df)
+
+          title = (
+              client_instructions.strip().splitlines()[0][:80]
+              if client_instructions.strip()
+              else f.name.rsplit(".", 1)[0].replace("_", " ").title()
+          )
 
           st.session_state["results"].append({
               "filename": f.name,
-              "title": extracted.document_title,
-              "summary": extracted.summary_notes,
+              "title": title,
+              "summary": meta_summary,
               "df": df,
-              "flags": flagged_notes,
+              "flags": flags,
           })
         except Exception as e:
           st.error(f"Failed to process `{f.name}`: {e}")
@@ -316,14 +371,15 @@ if "results" in st.session_state and st.session_state["results"]:
   palette = PALETTES[palette_name]
 
   for idx, item in enumerate(st.session_state["results"]):
-    with st.expander(f"📄 {item['filename']} — {item['title']}", expanded=True):
+    with st.expander(
+        f"📄 {item['filename']} — {len(item['df'])} rows", expanded=True
+    ):
       if item["flags"]:
-        st.warning(
-            "**AI Quality Check Flags (Please verify these rows):**\n- "
+        st.info(
+            "**Data Cleaning & Quality Report:**\n- "
             + "\n- ".join(item["flags"])
         )
 
-      # Live editable table before export
       edited_df = st.data_editor(
           item["df"],
           key=f"editor_{idx}",
