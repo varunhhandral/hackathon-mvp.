@@ -102,8 +102,10 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
       cleaned_num = (
           df[col].astype(str).str.replace(r"[₹$€£,\s]", "", regex=True)
       )
-      df[col] = pd.to_numeric(cleaned_num, errors="ignore")
-
+      try:
+        df[col] = pd.to_numeric(cleaned_num)
+      except (ValueError, TypeError):
+        pass
   # 4. Deduplicate rows
   before_count = len(df)
   df.drop_duplicates(inplace=True)
