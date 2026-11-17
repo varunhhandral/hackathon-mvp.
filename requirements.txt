@@ -1,6 +1,7 @@
 streamlit
+google-genai
+pydantic
 pandas
 openpyxl
 python-docx
-pypdf
-Pillow
+pillow
