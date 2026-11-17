@@ -3,15 +3,15 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="One-Click Data Cleaning & Sequence Utility",
-    layout="wide",
+    page_title="Professional Office Data & Sequence Utility", layout="wide"
 )
 
-st.title("⚡ One-Click Data Cleaning, Sequence Ordering & Client Report")
+st.title("💼 Professional Office Data Cleaning, Sequencing & Excel Generator")
 st.markdown(
-    "Upload any scrambled client file. This tool cleans **all rows**, removes"
-    " duplicates, **sorts records in proper sequence (ID & Date)**, orders"
-    " columns logically, and exports a styled multi-sheet Excel report."
+    "Upload any raw, scrambled client file. This tool cleans **all rows**,"
+    " removes duplicates, **sorts records in proper sequence (ID or Date)**,"
+    " formats dates numerically (`YYYY-MM-DD`), orders columns logically, and"
+    " exports a styled multi-sheet Excel report."
 )
 
 # 1. File Uploader
@@ -71,7 +71,7 @@ if uploaded_file is not None:
       cleaned_df = cleaned_df.drop_duplicates().reset_index(drop=True)
       dups_removed = before_dups - len(cleaned_df)
 
-      # C. Parse Dates cleanly (keep real datetime temporarily for accurate sorting)
+      # C. Parse Dates purely as Numerical Format (YYYY-MM-DD)
       date_col = next(
           (c for c in cleaned_df.columns if "date" in c.lower()), None
       )
@@ -80,7 +80,7 @@ if uploaded_file is not None:
             cleaned_df[date_col], errors="coerce"
         )
         cleaned_df[date_col] = cleaned_df["_sort_date"].dt.strftime(
-            "%B %d, %Y"
+            "%Y-%m-%d"
         ).fillna("Not Specified")
 
       # D. Convert word-numbers to digits
@@ -166,7 +166,7 @@ if uploaded_file is not None:
             lambda x: "Good" if x >= 25 else "Bad"
         )
 
-      # H. SEQUENCE-WISE SORTING (Rows + Logical Column Order)
+      # H. SEQUENCE-WISE SORTING
       id_col = next(
           (
               c
@@ -176,7 +176,6 @@ if uploaded_file is not None:
           None,
       )
       if id_col:
-        # Extract numeric part so ZM-2 comes before ZM-10
         cleaned_df["_sort_id_num"] = (
             cleaned_df[id_col]
             .astype(str)
@@ -204,14 +203,13 @@ if uploaded_file is not None:
         if sort_cols:
           cleaned_df = cleaned_df.sort_values(by=sort_cols, ascending=True)
 
-      # Drop helper sort columns & reset index
       cleaned_df = cleaned_df.drop(
           columns=[
               c for c in ["_sort_date", "_sort_id_num"] if c in cleaned_df.columns
           ]
       ).reset_index(drop=True)
 
-      # Arrange columns in clean office sequence (ID -> Date -> Names -> Area/Dept -> Items -> Financials -> Status)
+      # Arrange columns in clean office sequence
       preferred_order = [
           "Order ID",
           "Employee ID",
@@ -279,7 +277,6 @@ if uploaded_file is not None:
     c2.metric("Duplicates Removed", st.session_state["dups_removed"])
     c3.metric("Missing Cells", int(res_df.isnull().sum().sum()))
 
-    # Create formatted Excel workbook using openpyxl
     from openpyxl.styles import Alignment, Font, PatternFill
 
     output = io.BytesIO()
@@ -287,7 +284,6 @@ if uploaded_file is not None:
       res_df.to_excel(writer, sheet_name="All_Cleaned_Data", index=False)
       sum_df.to_excel(writer, sheet_name="Client_Summary", index=False)
 
-      # Style headers & auto-adjust column widths on both sheets
       header_fill = PatternFill(
           start_color="1E293B", end_color="1E293B", fill_type="solid"
       )
@@ -295,7 +291,7 @@ if uploaded_file is not None:
 
       for sheet_name in ["All_Cleaned_Data", "Client_Summary"]:
         ws = writer.sheets[sheet_name]
-        ws.freeze_panes = "A2"  # Freeze top header row
+        ws.freeze_panes = "A2"
         for col_cells in ws.columns:
           max_len = 0
           col_letter = col_cells[0].column_letter
@@ -326,4 +322,4 @@ if uploaded_file is not None:
         f"✨ Sequence-Ordered & Cleaned Dataset (All {len(res_df):,} Rows)"
     )
     st.dataframe(res_df, use_container_width=True, height=500)
-        
+          
