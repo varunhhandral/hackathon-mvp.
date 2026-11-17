@@ -1,4 +1,7 @@
 streamlit
 pandas
 openpyxl
-
+python-docx
+pypdf
+google-genai
+Pillow
