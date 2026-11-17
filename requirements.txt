@@ -3,5 +3,5 @@ pandas
 openpyxl
 python-docx
 pypdf
-google-genai
+model="gemini-3.8-flash"
 Pillow
