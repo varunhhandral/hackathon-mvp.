@@ -1,51 +1,249 @@
 import io
-import json
-import os
 from docx import Document
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Pt, RGBColor
 from google import genai
 from google.genai import types
-from openpyxl.styles import Alignment, Font, PatternFill
+import openpyxl
+from openpyxl.styles import Font, PatternFill
 import pandas as pd
 from PIL import Image
-from pypdf import PdfReader
+from pydantic import BaseModel, Field
 import streamlit as st
 
+# --- PAGE CONFIG ---
 st.set_page_config(
     page_title="Senior Data Entry & Document Conversion Studio",
+    page_icon="🗂️",
     layout="wide",
 )
 
+
+# --- PYDANTIC SCHEMA FOR STRUCTURED OUTPUTS ---
+class DataRow(BaseModel):
+  cells: list[str] = Field(
+      description="Values for each column in exact header order."
+  )
+  confidence_note: str | None = Field(
+      default=None,
+      description=(
+          "Flag if any text in this row was blurry, illegible, or ambiguous."
+      ),
+  )
+
+
+class ExtractedDeliverable(BaseModel):
+  document_title: str = Field(
+      description="Clean title for the report or spreadsheet."
+  )
+  summary_notes: str = Field(
+      description=(
+          "Brief overview or preserved header/footer metadata from the"
+          " document."
+      )
+  )
+  column_headers: list[str] = Field(
+      description="Standardized column names in exact sequence."
+  )
+  rows: list[DataRow] = Field(
+      description="All extracted data rows, cleaned and standardized."
+  )
+
+
+# --- COLOUR PALETTE MAPPING ---
 PALETTES = {
-    "None (Plain Clean Office Format)": None,
-    "Corporate Slate Navy": {
-        "header_bg": "1E293B",
-        "sub_bg": "D9E2EC",
-        "zebra_bg": "F8FAFC",
-        "header_fg": "FFFFFF",
-    },
-    "Executive Emerald Green": {
-        "header_bg": "065F46",
-        "sub_bg": "D1FAE5",
-        "zebra_bg": "F0FDF4",
-        "header_fg": "FFFFFF",
-    },
-    "Royal Burgundy & Warm Grey": {
-        "header_bg": "7F1D1D",
-        "sub_bg": "FEE2E2",
-        "zebra_bg": "FAF5F5",
-        "header_fg": "FFFFFF",
-    },
-    "Classic Deep Indigo": {
-        "header_bg": "312E81",
-        "sub_bg": "E0E7FF",
-        "zebra_bg": "F5F7FF",
-        "header_fg": "FFFFFF",
-    },
+    "Corporate Slate Navy": {"hex": "1B365D", "rgb": (27, 54, 93)},
+    "Executive Charcoal": {"hex": "2C3E50", "rgb": (44, 62, 80)},
+    "Emerald Finance": {"hex": "1E6B52", "rgb": (30, 107, 82)},
+    "Royal Burgundy": {"hex": "6B1E3B", "rgb": (107, 30, 59)},
 }
 
+# --- SIDEBAR CONTROLS ---
+with st.sidebar:
+  st.header("⚙️ Senior Data Entry Controls")
+  api_key = st.text_input("Gemini API Key", type="password")
+
+  output_format = st.selectbox(
+      "1. Output Deliverable Format",
+      ["Microsoft Word (.docx)", "Microsoft Excel (.xlsx)"],
+  )
+
+  deep_clean = st.checkbox(
+      "2. Enable Deep Data Cleaning (Deduplicate, Trim, Fix Numbers & Dates)",
+      value=True,
+  )
+
+  sequence_rule = st.selectbox(
+      "3. Sequence & Layout Ordering",
+      [
+          "Preserve Exact Document / Page Sequence",
+          "Sort Alphabetically by First Column",
+          "Group by Category / Section",
+      ],
+  )
+
+  apply_palette = st.checkbox("4. Apply Custom Colour Palette", value=True)
+  palette_name = st.selectbox("Select Colour Palette", list(PALETTES.keys()))
+
+  st.subheader("5. Typography & Layout Rules")
+  font_family = st.selectbox(
+      "Font Family", ["Arial", "Calibri", "Times New Roman", "Verdana"]
+  )
+  font_size = st.number_input(
+      "Font Size (pt)", min_value=8, max_value=24, value=11
+  )
+  preserve_headers_footers = st.checkbox(
+      "Preserve Headers, Footers & Page Numbers", value=True
+  )
+
+
+# --- EXTRACTION ENGINE ---
+def process_uploaded_file(
+    uploaded_file, client: genai.Client, instructions: str
+) -> ExtractedDeliverable:
+  file_bytes = uploaded_file.getvalue()
+  mime_type = uploaded_file.type
+  file_name = uploaded_file.name.lower()
+
+  cleaning_rules = (
+      "Apply deep data cleaning: trim extra whitespace, standardize all dates"
+      " to YYYY-MM-DD, and clean number formatting."
+      if deep_clean
+      else "Extract raw values verbatim without altering date or number formats."
+  )
+  header_footer_rules = (
+      "Include any document header, footer, or page number info inside"
+      " summary_notes."
+      if preserve_headers_footers
+      else "Ignore page headers and footers."
+  )
+
+  prompt = f"""
+    You are a Senior Data Entry Specialist. Extract all tabular and structured data from the provided file.
+    
+    Client Instructions: {instructions if instructions.strip() else "Extract cleanly and accurately."}
+    Cleaning Rules: {cleaning_rules}
+    Ordering Rule: {sequence_rule}
+    Metadata Rule: {header_footer_rules}
+    
+    Ensure every row in `rows` has the exact same number of elements in `cells` as `column_headers`.
+    If a cell is empty, use an empty string "".
+    """
+
+  # Handle CSV / XLSX directly via Pandas + Gemini structuring
+  if file_name.endswith(".csv"):
+    df_raw = pd.read_csv(io.BytesIO(file_bytes))
+    content_payload = [prompt, f"Raw CSV Data:\n{df_raw.to_csv(index=False)}"]
+  elif file_name.endswith(".xlsx"):
+    df_raw = pd.read_excel(io.BytesIO(file_bytes))
+    content_payload = [prompt, f"Raw Excel Data:\n{df_raw.to_csv(index=False)}"]
+  elif file_name.endswith(".pdf"):
+    pdf_part = types.Part.from_bytes(
+        data=file_bytes, mime_type="application/pdf"
+    )
+    content_payload = [pdf_part, prompt]
+  else:
+    # Images (PNG, JPG, WEBP)
+    img = Image.open(io.BytesIO(file_bytes))
+    content_payload = [img, prompt]
+
+  response = client.models.generate_content(
+      model="gemini-2.5-flash",
+      contents=content_payload,
+      config=types.GenerateContentConfig(
+          response_mime_type="application/json",
+          response_schema=ExtractedDeliverable,
+          temperature=0.1,
+      ),
+  )
+  return response.parsed
+
+
+# --- DELIVERABLE BUILDERS ---
+def build_excel(
+    df: pd.DataFrame, title: str, summary: str, hex_color: str
+) -> bytes:
+  buffer = io.BytesIO()
+  with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+    df.to_excel(writer, index=False, sheet_name="Cleaned_Data", startrow=2)
+    ws = writer.sheets["Cleaned_Data"]
+
+    # Title styling
+    ws["A1"] = title
+    ws["A1"].font = Font(
+        name=font_family, size=font_size + 3, bold=True, color=hex_color
+    )
+    if preserve_headers_footers and summary:
+      ws["A2"] = summary
+      ws["A2"].font = Font(name=font_family, size=font_size - 1, italic=True)
+
+    # Header styling
+    header_fill = PatternFill(
+        start_color=hex_color, end_color=hex_color, fill_type="solid"
+    )
+    header_font = Font(
+        name=font_family, size=font_size, bold=True, color="FFFFFF"
+    )
+    for col_idx in range(1, len(df.columns) + 1):
+      cell = ws.cell(row=3, column=col_idx)
+      if apply_palette:
+        cell.fill = header_fill
+        cell.font = header_font
+      else:
+        cell.font = Font(name=font_family, size=font_size, bold=True)
+
+  return buffer.getvalue()
+
+
+def build_word(
+    df: pd.DataFrame, title: str, summary: str, rgb_color: tuple[int, int, int]
+) -> bytes:
+  doc = Document()
+
+  # Base document font
+  style = doc.styles["Normal"]
+  style.font.name = font_family
+  style.font.size = Pt(font_size)
+
+  # Title
+  heading = doc.add_heading(title, level=1)
+  run = heading.runs[0]
+  run.font.name = font_family
+  run.font.size = Pt(font_size + 4)
+  if apply_palette:
+    run.font.color.rgb = RGBColor(*rgb_color)
+
+  if preserve_headers_footers and summary:
+    p = doc.add_paragraph(summary)
+    p.runs[0].italic = True
+
+  # Table
+  table = doc.add_table(rows=1, cols=len(df.columns))
+  table.style = "Table Grid"
+
+  hdr_cells = table.rows[0].cells
+  for i, col_name in enumerate(df.columns):
+    hdr_cells[i].text = str(col_name)
+    for run in hdr_cells[i].paragraphs[0].runs:
+      run.bold = True
+      run.font.name = font_family
+      run.font.size = Pt(font_size)
+      if apply_palette:
+        run.font.color.rgb = RGBColor(*rgb_color)
+
+  for _, row in df.iterrows():
+    row_cells = table.add_row().cells
+    for i, val in enumerate(row):
+      row_cells[i].text = "" if pd.isna(val) else str(val)
+      for run in row_cells[i].paragraphs[0].runs:
+        run.font.name = font_family
+        run.font.size = Pt(font_size)
+
+  buffer = io.BytesIO()
+  doc.save(buffer)
+  return buffer.getvalue()
+
+
+# --- MAIN UI ---
 st.title("🗂️ Universal Data Entry & Client Deliverable Studio")
 st.markdown(
     "Upload **any client file** (`PDF`, `PNG/JPG Scanned Image`, `CSV`, or"
@@ -54,503 +252,106 @@ st.markdown(
     " **Excel** or **Word (`.docx`)** files."
 )
 
-# --- SIDEBAR CONTROLS ---
-with st.sidebar:
-  st.header("⚙️ Senior Data Entry Controls")
-
-  # Auto-detect key from Streamlit secrets or environment variables if available
-  default_key = ""
-  try:
-    if "GEMINI_API_KEY" in st.secrets:
-      default_key = st.secrets["GEMINI_API_KEY"]
-    elif "GEMINI_API_KEY" in os.environ:
-      default_key = os.environ["GEMINI_API_KEY"]
-  except Exception:
-    pass
-
-  api_key = st.text_input(
-      "Gemini API Key", value=default_key, type="password"
-  )
-
-  # OPTION 2 FALLBACK CHECK: If sidebar is blank, set your fallback key here if needed
-  if not api_key:
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-
-  output_format = st.selectbox(
-      "1. Output Deliverable Format",
-      [
-          "Microsoft Word (.docx)",
-          "Microsoft Excel (.xlsx)",
-          "Both (.docx & .xlsx)",
-      ],
-  )
-
-  enable_cleaning = st.checkbox(
-      "2. Enable Deep Data Cleaning (Deduplicate, Trim, Fix Numbers & Dates)",
-      value=True,
-  )
-
-  sequence_mode = st.selectbox(
-      "3. Sequence & Layout Ordering",
-      [
-          "Preserve Exact Document / Page Sequence",
-          "ID Sequence (Natural Numeric Order)",
-          "Chronological Date Sequence (Oldest → Newest)",
-          "Category / Area / Department Grouping",
-      ],
-  )
-
-  use_palette = st.checkbox("4. Apply Custom Colour Palette", value=True)
-  selected_palette_name = st.selectbox(
-      "Select Colour Palette",
-      list(PALETTES.keys())[1:],
-      disabled=not use_palette,
-  )
-  active_palette = PALETTES[selected_palette_name] if use_palette else None
-
-  st.subheader("5. Typography & Layout Rules")
-  font_family = st.selectbox(
-      "Font Family", ["Arial", "Calibri", "Times New Roman", "Segoe UI"]
-  )
-  font_size = st.number_input(
-      "Font Size (pt)", min_value=8, max_value=24, value=11
-  )
-  include_footers = st.checkbox(
-      "Preserve Headers, Footers & Page Numbers", value=True
-  )
-
-# --- MAIN WORKSPACE ---
-col_left, col_right = st.columns([1.2, 1])
-
-with col_left:
+col1, col2 = st.columns(2)
+with col1:
   uploaded_files = st.file_uploader(
       "Upload Client Source Files (PDF, Scanned Images, CSV, XLSX)",
       type=["pdf", "png", "jpg", "jpeg", "webp", "csv", "xlsx"],
       accept_multiple_files=True,
   )
-
-with col_right:
+with col2:
   client_instructions = st.text_area(
       "Client Request / Custom Formatting Instructions",
-      height=155,
       placeholder=(
-          "Paste client instructions here (e.g., 'Convert scanned PDFs into Word"
-          " using Arial size 11, preserve footer info')..."
+          "Paste client instructions here (e.g., 'Convert scanned PDFs into"
+          " Word using Arial size 11, preserve footer info')..."
       ),
+      height=135,
   )
 
-
-# --- HELPER FUNCTIONS ---
-def set_docx_cell_bg(cell, hex_color):
-  if not hex_color:
-    return
-  tcPr = cell._tc.get_or_add_tcPr()
-  shd = OxmlElement("w:shd")
-  shd.set(qn("w:val"), "clear")
-  shd.set(qn("w:color"), "auto")
-  shd.set(qn("w:fill"), hex_color)
-  tcPr.append(shd)
-
-
-def build_docx_from_structured_json(
-    doc_json, font_name, font_pt, palette, keep_footer
-):
-  doc = Document()
-  normal_style = doc.styles["Normal"]
-  normal_style.font.name = font_name
-  normal_style.font.size = Pt(font_pt)
-
-  footer_text = doc_json.get("footer", "")
-  if keep_footer and footer_text:
-    section = doc.sections[0]
-    fp = section.footer.paragraphs[0]
-    fr = fp.add_run(footer_text)
-    fr.font.name = font_name
-    fr.font.size = Pt(font_pt)
-
-  for block in doc_json.get("blocks", []):
-    b_type = block.get("type", "paragraph")
-    if b_type == "banner":
-      tbl = doc.add_table(rows=1, cols=1)
-      cell = tbl.rows[0].cells[0]
-      cell.width = Inches(6.5)
-      bg = (
-          palette["header_bg"]
-          if palette
-          else block.get("bg_hex", "D9E2EC").replace("#", "")
-      )
-      set_docx_cell_bg(cell, bg)
-      p = cell.paragraphs[0]
-      r = p.add_run(block.get("text", ""))
-      r.font.name = font_name
-      r.font.size = Pt(font_pt)
-      r.bold = True
-      if palette:
-        r.font.color.rgb = RGBColor(255, 255, 255)
-      doc.add_paragraph()
-
-    elif b_type == "heading":
-      p = doc.add_paragraph()
-      r = p.add_run(block.get("text", ""))
-      r.font.name = font_name
-      r.font.size = Pt(font_pt)
-      r.bold = True
-
-    elif b_type == "table":
-      rows_data = block.get("rows", [])
-      if rows_data:
-        max_cols = max(len(r) for r in rows_data)
-        tbl = doc.add_table(rows=len(rows_data), cols=max_cols)
-        for r_idx, row_vals in enumerate(rows_data):
-          for c_idx in range(max_cols):
-            val = row_vals[c_idx] if c_idx < len(row_vals) else ""
-            cell = tbl.rows[r_idx].cells[c_idx]
-            if r_idx == 0 and palette:
-              set_docx_cell_bg(cell, palette["header_bg"])
-            elif r_idx % 2 == 1 and palette:
-              set_docx_cell_bg(cell, palette["zebra_bg"])
-            p = cell.paragraphs[0]
-            run = p.add_run(str(val))
-            run.font.name = font_name
-            run.font.size = Pt(font_pt)
-            if r_idx == 0:
-              run.bold = True
-              if palette:
-                run.font.color.rgb = RGBColor(255, 255, 255)
-        doc.add_paragraph()
-
-    else:
-      p = doc.add_paragraph()
-      r = p.add_run(block.get("text", ""))
-      r.font.name = font_name
-      r.font.size = Pt(font_pt)
-      if block.get("bold", False):
-        r.bold = True
-
-  buf = io.BytesIO()
-  doc.save(buf)
-  return buf.getvalue()
-
-
-def clean_tabular_dataframe(df, do_clean, seq_mode):
-  out = df.copy()
-  if do_clean:
-    for col in out.select_dtypes(include=["object"]).columns:
-      if "id" in col.lower():
-        out[col] = out[col].astype(str).str.strip().str.upper()
-      else:
-        out[col] = (
-            out[col]
-            .astype(str)
-            .str.strip()
-            .str.replace(r"\s+", " ", regex=True)
-            .str.title()
-        )
-      out[col] = out[col].replace(["Nan", "None", "Nat", ""], pd.NA)
-
-    out = out.drop_duplicates().reset_index(drop=True)
-
-    date_col = next((c for c in out.columns if "date" in c.lower()), None)
-    if date_col:
-      out["_sort_dt"] = pd.to_datetime(out[date_col], errors="coerce")
-      out[date_col] = out["_sort_dt"].dt.strftime("%d %B %Y").fillna(
-          "Not Specified"
-      )
-
-    word_map = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5, "Six": 6}
-    for col in ["Quantity", "Rating"]:
-      if col in out.columns:
-        out[col] = pd.to_numeric(
-            out[col].replace(word_map), errors="coerce"
-        ).fillna(1 if col == "Quantity" else 4.0)
-        if col == "Quantity":
-          out[col] = out[col].astype(int)
-
-    for col in [
-        "Item Price",
-        "Delivery Fee",
-        "Basic Salary",
-        "Salary",
-        "Price",
-    ]:
-      if col in out.columns:
-        out[col] = (
-            out[col]
-            .astype(str)
-            .str.replace(r"(?i)rs\.?|₹|,", "", regex=True)
-            .str.strip()
-        )
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
-
-    if all(
-        c in out.columns for c in ["Quantity", "Item Price", "Delivery Fee"]
-    ):
-      out["Total_Revenue"] = (out["Quantity"] * out["Item Price"]) + out[
-          "Delivery Fee"
-      ]
-
-    for col in out.select_dtypes(include=["object"]).columns:
-      out[col] = out[col].fillna("Not Specified")
-
-  id_col = next(
-      (
-          c
-          for c in out.columns
-          if c.lower() in ["order id", "employee id", "id"]
-      ),
-      None,
-  )
-  if "ID Sequence" in seq_mode and id_col:
-    out["_id_num"] = (
-        out[id_col].astype(str).str.extract(r"(\d+)").astype(float).fillna(9e9)
-    )
-    out = out.sort_values(by=["_id_num", id_col])
-  elif "Chronological" in seq_mode and "_sort_dt" in out.columns:
-    out = out.sort_values(by=["_sort_dt"])
-  elif "Category" in seq_mode:
-    grp = next(
-        (c for c in ["Area", "Department", "Category"] if c in out.columns), None
-    )
-    if grp:
-      out = out.sort_values(by=[grp])
-
-  out = out.drop(
-      columns=[c for c in ["_sort_dt", "_id_num"] if c in out.columns]
-  ).reset_index(drop=True)
-  return out
-
-
-def build_styled_excel(df_main, palette, font_name, font_pt):
-  output = io.BytesIO()
-  with pd.ExcelWriter(output, engine="openpyxl") as writer:
-    df_main.to_excel(writer, sheet_name="Cleaned_Deliverable", index=False)
-    ws = writer.sheets["Cleaned_Deliverable"]
-    ws.freeze_panes = "A2"
-
-    hdr_fill = (
-        PatternFill(
-            start_color=palette["header_bg"],
-            end_color=palette["header_bg"],
-            fill_type="solid",
-        )
-        if palette
-        else None
-    )
-    zebra_fill = (
-        PatternFill(
-            start_color=palette["zebra_bg"],
-            end_color=palette["zebra_bg"],
-            fill_type="solid",
-        )
-        if palette
-        else None
-    )
-    hdr_font = Font(
-        name=font_name,
-        size=font_pt,
-        bold=True,
-        color=palette["header_fg"] if palette else "000000",
-    )
-    body_font = Font(name=font_name, size=font_pt)
-
-    for col_idx, col_name in enumerate(df_main.columns, 1):
-      is_num = pd.api.types.is_numeric_dtype(df_main[col_name])
-      align = Alignment(
-          horizontal="right" if is_num else "left", vertical="center"
-      )
-      for row_idx in range(1, len(df_main) + 2):
-        cell = ws.cell(row=row_idx, column=col_idx)
-        if row_idx == 1:
-          if hdr_fill:
-            cell.fill = hdr_fill
-          cell.font = hdr_font
-          cell.alignment = Alignment(horizontal="center", vertical="center")
-        else:
-          cell.font = body_font
-          cell.alignment = align
-          if zebra_fill and row_idx % 2 == 0:
-            cell.fill = zebra_fill
-
-    for col_cells in ws.columns:
-      max_len = max(len(str(c.value or "")) for c in col_cells)
-      ws.column_dimensions[col_cells[0].column_letter].width = min(
-          max_len + 4, 40
-      )
-
-  return output.getvalue()
-
-
-# --- EXECUTION ENGINE ---
 if st.button("🚀 Process All Client Files & Generate Deliverables"):
-  if not uploaded_files:
-    st.warning("Please upload at least one file.")
-    st.stop()
+  if not api_key:
+    st.error("Please enter your Gemini API Key in the left sidebar.")
+  elif not uploaded_files:
+    st.warning("Please upload at least one client file.")
+  else:
+    client = genai.Client(api_key=api_key)
+    st.session_state["results"] = []
 
-  for file in uploaded_files:
-    st.markdown(f"### 📄 Processing: `{file.name}`")
-    ext = file.name.split(".")[-1].lower()
-    base_name = file.name.rsplit(".", 1)[0]
-
-    if ext in ["csv", "xlsx"]:
-      raw_df = (
-          pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
-      )
-      clean_df = clean_tabular_dataframe(
-          raw_df, enable_cleaning, sequence_mode
-      )
-      st.dataframe(clean_df, use_container_width=True, height=300)
-
-      if "Excel" in output_format or "Both" in output_format:
-        xlsx_bytes = build_styled_excel(
-            clean_df, active_palette, font_family, font_size
-        )
-        st.download_button(
-            label=f"📥 Download Cleaned Excel ({base_name}_Cleaned.xlsx)",
-            data=xlsx_bytes,
-            file_name=f"{base_name}_Cleaned.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"xlsx_{file.name}",
-        )
-
-      if "Word" in output_format or "Both" in output_format:
-        doc_struct = {
-            "footer": f"{base_name} | Client Deliverable",
-            "blocks": [
-                {"type": "banner", "text": f"CLEANED REPORT: {base_name}"},
-                {
-                    "type": "table",
-                    "rows": [clean_df.columns.tolist()]
-                    + clean_df.head(500).astype(str).values.tolist(),
-                },
-            ],
-        }
-        docx_bytes = build_docx_from_structured_json(
-            doc_struct,
-            font_family,
-            font_size,
-            active_palette,
-            include_footers,
-        )
-        st.download_button(
-            label=f"📥 Download Word Deliverable ({base_name}_Cleaned.docx)",
-            data=docx_bytes,
-            file_name=f"{base_name}_Cleaned.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key=f"docx_{file.name}",
-        )
-
-    elif ext in ["pdf", "png", "jpg", "jpeg", "webp"]:
-      if not api_key:
-        st.error(
-            "⚠️ Please enter your Gemini API Key in the sidebar input box"
-            " above to transcribe PDFs and images."
-        )
-        continue
-
-      with st.spinner(
-          f"Transcribing {file.name} with senior data-entry precision..."
-      ):
+    for f in uploaded_files:
+      with st.spinner(f"Extracting & cleaning `{f.name}`..."):
         try:
-          client = genai.Client(api_key=api_key)
-          file_bytes = file.read()
-          mime_map = {
-              "pdf": "application/pdf",
-              "png": "image/png",
-              "jpg": "image/jpeg",
-              "jpeg": "image/jpeg",
-              "webp": "image/webp",
-          }
-          prompt = f"""
-            You are a senior data entry specialist with 12 years of experience.
-            Transcribe EVERY word, number, table, heading, and footer from this document with 100% accuracy.
-            Client instructions: {client_instructions or 'Preserve exact text, structure, tables, and footers.'}
-            Cleaning enabled: {enable_cleaning}. Sequence mode: {sequence_mode}.
+          extracted = process_uploaded_file(f, client, client_instructions)
 
-            Return ONLY valid JSON in this exact schema:
-            {{
-              "footer": "exact footer text if present, else empty string",
-              "blocks": [
-                {{"type": "banner", "text": "Title or top header text", "bg_hex": "D9E2EC"}},
-                {{"type": "heading", "text": "Section heading"}},
-                {{"type": "paragraph", "text": "Full paragraph or bullet text", "bold": false}},
-                {{"type": "table", "rows": [["Col1", "Col2"], ["Val1", "Val2"]]}}
-              ]
-            }}
-            """
-          response = client.models.generate_content(
-              model="gemini-2.5-flash",
-              contents=[
-                  types.Part.from_bytes(
-                      data=file_bytes, mime_type=mime_map[ext]
-                  ),
-                  prompt,
-              ],
-              config=types.GenerateContentConfig(
-                  response_mime_type="application/json"
-              ),
-          )
-          parsed = json.loads(response.text)
+          # Normalize row lengths to match headers safely
+          num_cols = len(extracted.column_headers)
+          normalized_rows = []
+          flagged_notes = []
 
-          st.success(
-              f"Extracted {len(parsed.get('blocks', []))} structured blocks."
-          )
+          for idx, r in enumerate(extracted.rows):
+            padded = (r.cells + [""] * num_cols)[:num_cols]
+            normalized_rows.append(padded)
+            if r.confidence_note:
+              flagged_notes.append(f"Row {idx + 1}: {r.confidence_note}")
 
-          if "Word" in output_format or "Both" in output_format:
-            docx_bytes = build_docx_from_structured_json(
-                parsed,
-                font_family,
-                font_size,
-                active_palette,
-                include_footers,
-            )
-            st.download_button(
-                label=(
-                    f"📥 Download Word Deliverable"
-                    f" ({base_name}_Deliverable.docx)"
-                ),
-                data=docx_bytes,
-                file_name=f"{base_name}_Deliverable.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"docx_{file.name}",
-            )
+          df = pd.DataFrame(normalized_rows, columns=extracted.column_headers)
+          if deep_clean:
+            df = df.drop_duplicates()
 
-          if "Excel" in output_format or "Both" in output_format:
-            tables = [
-                b["rows"]
-                for b in parsed.get("blocks", [])
-                if b.get("type") == "table" and len(b.get("rows", [])) > 1
-            ]
-            if tables:
-              t_rows = tables[0]
-              df_extracted = pd.DataFrame(t_rows[1:], columns=t_rows[0])
-            else:
-              df_extracted = pd.DataFrame(
-                  [
-                      {"Content": b.get("text", "")}
-                      for b in parsed.get("blocks", [])
-                      if b.get("text")
-                  ]
-              )
-            df_extracted = clean_tabular_dataframe(
-                df_extracted, enable_cleaning, sequence_mode
-            )
-            xlsx_bytes = build_styled_excel(
-                df_extracted, active_palette, font_family, font_size
-            )
-            st.download_button(
-                label=(
-                    f"📥 Download Excel Deliverable"
-                    f" ({base_name}_Deliverable.xlsx)"
-                ),
-                data=xlsx_bytes,
-                file_name=f"{base_name}_Deliverable.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"xlsx_{file.name}",
-            )
-
+          st.session_state["results"].append({
+              "filename": f.name,
+              "title": extracted.document_title,
+              "summary": extracted.summary_notes,
+              "df": df,
+              "flags": flagged_notes,
+          })
         except Exception as e:
-          st.error(
-              f"Error during API processing: {e}. Please check your API key"
-              " and try again."
-    )
-          
+          st.error(f"Failed to process `{f.name}`: {e}")
+
+# --- HUMAN-IN-THE-LOOP REVIEW & DOWNLOAD ---
+if "results" in st.session_state and st.session_state["results"]:
+  st.divider()
+  st.subheader("✅ Review, Edit & Export Client Deliverables")
+
+  palette = PALETTES[palette_name]
+
+  for idx, item in enumerate(st.session_state["results"]):
+    with st.expander(f"📄 {item['filename']} — {item['title']}", expanded=True):
+      if item["flags"]:
+        st.warning(
+            "**AI Quality Check Flags (Please verify these rows):**\n- "
+            + "\n- ".join(item["flags"])
+        )
+
+      # Live editable table before export
+      edited_df = st.data_editor(
+          item["df"],
+          key=f"editor_{idx}",
+          width="stretch",
+          num_rows="dynamic",
+      )
+
+      base_name = item["filename"].rsplit(".", 1)[0]
+
+      if output_format == "Microsoft Word (.docx)":
+        doc_bytes = build_word(
+            edited_df, item["title"], item["summary"], palette["rgb"]
+        )
+        st.download_button(
+            label=f"⬇️ Download {base_name}_cleaned.docx",
+            data=doc_bytes,
+            file_name=f"{base_name}_cleaned.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"dl_doc_{idx}",
+        )
+      else:
+        xlsx_bytes = build_excel(
+            edited_df, item["title"], item["summary"], palette["hex"]
+        )
+        st.download_button(
+            label=f"⬇️ Download {base_name}_cleaned.xlsx",
+            data=xlsx_bytes,
+            file_name=f"{base_name}_cleaned.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"dl_xlsx_{idx}",
+        )
