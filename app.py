@@ -38,7 +38,7 @@ with st.sidebar:
 
   output_format = st.selectbox(
       "1. Output Deliverable Format",
-      ["Microsoft Word (.docx)", "Microsoft Excel (.xlsx)"],
+      ["Microsoft Excel (.xlsx)", "Microsoft Word (.docx)"],
   )
 
   deep_clean = st.checkbox(
@@ -82,7 +82,38 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
   df.dropna(how="all", inplace=True)
   df.dropna(axis=1, how="all", inplace=True)
 
-  # 3. Trim whitespace and apply column-specific standardization
+  # Abbreviations that should always remain ALL CAPS
+  acronyms = {
+      "upi",
+      "cod",
+      "emi",
+      "gst",
+      "id",
+      "pan",
+      "gstin",
+      "atm",
+      "neft",
+      "rtgs",
+      "imps",
+  }
+
+  def normalize_text(val):
+    if not isinstance(val, str):
+      return val
+    cleaned = re.sub(r"\s+", " ", val).strip()
+    if not cleaned:
+      return cleaned
+    # Preserve email addresses in lowercase
+    if "@" in cleaned and "." in cleaned:
+      return cleaned.lower()
+    # Keep known acronyms uppercase, capitalize every other word
+    words = cleaned.split(" ")
+    normalized_words = [
+        w.upper() if w.lower() in acronyms else w.capitalize() for w in words
+    ]
+    return " ".join(normalized_words)
+
+  # 3. Trim whitespace and standardize all columns
   for col in df.columns:
     col_lower = col.lower()
 
@@ -91,31 +122,25 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
           lambda x: re.sub(r"\s+", " ", x).strip() if isinstance(x, str) else x
       )
 
-    # Standardize Order IDs to uppercase (e.g., zm-1864 -> ZM-1864)
+    # Order IDs -> ALL CAPS (e.g., zm-1864 -> ZM-1864)
     if "order" in col_lower and "id" in col_lower:
       df[col] = df[col].apply(
           lambda x: x.upper() if isinstance(x, str) else x
       )
 
-    # Standardize Restaurant & Customer Names / Cities to Title Case
-    elif any(k in col_lower for k in ["restaurant", "customer", "name", "city"]):
-      df[col] = df[col].apply(
-          lambda x: x.title() if isinstance(x, str) else x
-      )
-
-    # 4. Standardize ALL Dates to numeric DD-MM-YYYY (date - month - year)
-    if any(k in col_lower for k in ["date", "dob", "time", "created"]):
+    # Dates -> numeric DD-MM-YYYY
+    elif any(k in col_lower for k in ["date", "dob", "time", "created"]):
       parsed = pd.to_datetime(
           df[col], format="mixed", dayfirst=True, errors="coerce"
       )
       df[col] = parsed.dt.strftime("%d-%m-%Y").fillna(df[col])
 
-    # 5. Turn Rating & Quantity into pure numeric values
+    # Rating & Quantity -> pure numeric
     elif any(k in col_lower for k in ["rating", "quantity", "qty"]):
       cleaned_num = df[col].astype(str).str.extract(r"(-?\d+(?:\.\d+)?)")[0]
       df[col] = pd.to_numeric(cleaned_num, errors="coerce")
 
-    # 6. Format Item Price, Delivery Fee & Basic Salary in Rupees (₹)
+    # Item Price, Delivery Fee & Basic Salary -> Rupees (₹)
     elif any(
         k in col_lower for k in ["price", "delivery fee", "fee", "salary"]
     ):
@@ -124,14 +149,18 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
       nums = pd.to_numeric(cleaned_num, errors="coerce")
       df[col] = nums.apply(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "")
 
-  # 7. Deduplicate rows
+    # ALL other verbal/text columns (Payment Mode, Order Status, Restaurant, Customer, City, Item, etc.)
+    elif df[col].dtype == "object" or str(df[col].dtype) == "string":
+      df[col] = df[col].apply(normalize_text)
+
+  # 4. Deduplicate rows
   before_count = len(df)
   df.drop_duplicates(inplace=True)
   removed = before_count - len(df)
   if removed > 0:
     flags.append(f"Removed {removed} duplicate row(s).")
 
-  # 8. Flag rows with missing values
+  # 5. Flag rows with missing values
   missing_rows = df[df.isna().any(axis=1)].index.tolist()
   if missing_rows:
     preview_idx = ", ".join(str(i + 1) for i in missing_rows[:10])
