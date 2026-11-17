@@ -4,5 +4,6 @@ openpyxl
 python-docx
 pillow
 pdfplumber
+opencv-python-headless
 rapidocr-onnxruntime
 numpy
