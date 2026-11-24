@@ -178,12 +178,9 @@ with tab1:
     const canvas = document.getElementById("mapCanvas");
     const ctx = canvas.getContext("2d");
 
-    // 30 Shops + RNSIT Starting Hub laid out along a realistic road grid
     const startNode = { id: 0, name: "RNSIT Campus (Start)", cat: "Hub", x: 90, y: 270, color: "#ef4444" };
 
-    // Road waypoints connecting RNSIT through North, Central, and South commercial streets
     const shops = [
-        // North Main Road (10 shops)
         { id: 1,  name: "Brew & Bites Cafe",        cat: "Food & Drinks",       x: 170, y: 180, color: "#f97316" },
         { id: 2,  name: "Campus Xerox & Print",     cat: "Artisans & Services", x: 240, y: 120, color: "#22c55e" },
         { id: 3,  name: "Krishna Book Corner",      cat: "Retail & Goods",      x: 320, y: 120, color: "#3b82f6" },
@@ -195,7 +192,6 @@ with tab1:
         { id: 9,  name: "Artisan Frame Works",      cat: "Artisans & Services", x: 800, y: 120, color: "#22c55e" },
         { id: 10, name: "Chaat & Juice Corner",     cat: "Food & Drinks",       x: 840, y: 190, color: "#f97316" },
 
-        // Central Avenue (10 shops)
         { id: 11, name: "Fresh Mart General Store", cat: "Retail & Goods",      x: 770, y: 270, color: "#3b82f6" },
         { id: 12, name: "QuickStitch Tailors",      cat: "Artisans & Services", x: 690, y: 270, color: "#22c55e" },
         { id: 13, name: "Dosa Plaza Express",       cat: "Food & Drinks",       x: 610, y: 270, color: "#f97316" },
@@ -207,7 +203,6 @@ with tab1:
         { id: 19, name: "Tandoori & Grill Spot",    cat: "Food & Drinks",       x: 170, y: 350, color: "#f97316" },
         { id: 20, name: "GreenLeaf Organic Shop",   cat: "Retail & Goods",      x: 240, y: 420, color: "#3b82f6" },
 
-        // South Market Road (10 shops)
         { id: 21, name: "Handmade Candle Co.",      cat: "Artisans & Services", x: 320, y: 420, color: "#22c55e" },
         { id: 22, name: "Sweet Tooth Mithai",       cat: "Food & Drinks",       x: 400, y: 420, color: "#f97316" },
         { id: 23, name: "Trendz Apparel Studio",    cat: "Retail & Goods",      x: 480, y: 420, color: "#3b82f6" },
@@ -226,7 +221,6 @@ with tab1:
     let speedMultiplier = 1;
     let currentSegment = 0;
     let segmentProgress = 0;
-    let visitedCount = 0;
 
     function togglePlay() {
         isPlaying = !isPlaying;
@@ -236,7 +230,6 @@ with tab1:
     function resetSim() {
         currentSegment = 0;
         segmentProgress = 0;
-        visitedCount = 0;
         isPlaying = true;
         document.getElementById("playBtn").innerText = "⏸️ Pause Route";
     }
@@ -247,11 +240,9 @@ with tab1:
     }
 
     function drawRoads() {
-        // Subtle neighborhood blocks
         ctx.fillStyle = "#1e293b";
         ctx.fillRect(140, 60, 730, 445);
 
-        // Road network background (asphalt)
         ctx.strokeStyle = "#334155";
         ctx.lineWidth = 22;
         ctx.lineCap = "round";
@@ -264,7 +255,6 @@ with tab1:
         }
         ctx.stroke();
 
-        // Dashed center road markings
         ctx.strokeStyle = "#64748b";
         ctx.lineWidth = 2;
         ctx.setLineDash([8, 8]);
@@ -294,7 +284,6 @@ with tab1:
     }
 
     function drawNodes() {
-        // Draw RNSIT Hub
         ctx.fillStyle = "#ef4444";
         ctx.beginPath();
         ctx.arc(startNode.x, startNode.y, 15, 0, Math.PI * 2);
@@ -308,7 +297,6 @@ with tab1:
         ctx.textAlign = "center";
         ctx.fillText("🎓 RNSIT", startNode.x, startNode.y - 22);
 
-        // Draw 30 Shops
         shops.forEach((shop, idx) => {
             const isVisited = idx < currentSegment;
             ctx.fillStyle = shop.color;
@@ -322,7 +310,6 @@ with tab1:
                 ctx.stroke();
             }
 
-            // Shop number label
             ctx.fillStyle = "#f8fafc";
             ctx.font = "bold 10px sans-serif";
             ctx.textAlign = "center";
@@ -332,7 +319,6 @@ with tab1:
 
     function animate() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-
         drawRoads();
 
         const fromNode = route[currentSegment];
@@ -344,7 +330,6 @@ with tab1:
         drawCompletedRoute(moverX, moverY);
         drawNodes();
 
-        // Draw animated shopper avatar dot
         ctx.fillStyle = "#facc15";
         ctx.beginPath();
         ctx.arc(moverX, moverY, 10, 0, Math.PI * 2);
@@ -353,7 +338,6 @@ with tab1:
         ctx.lineWidth = 2.5;
         ctx.stroke();
 
-        // Direction arrow / pulse ring
         ctx.strokeStyle = "rgba(250, 204, 21, 0.5)";
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -371,7 +355,7 @@ with tab1:
                     currentSegment++;
                     const reached = route[currentSegment];
                     document.getElementById("liveBanner").innerText =
-                        `🛍️ Shop #${reached.id}/30: ${reached.name} (${reached.cat})`;
+                        "🛍️ Shop #" + reached.id + "/30: " + reached.name + " (" + reached.cat + ")";
                 }
             } else {
                 document.getElementById("liveBanner").innerText =
@@ -480,7 +464,8 @@ with tab3:
     for i in range(6):
         with btn_cols[i % 3]:
             status_text = "✅ STAMPED" if st.session_state.stamps[i] else "⬜ Tap to Stamp"
-            if st.button(f"{stamp_labels[i]}\n({status_text})", key=f"stamp_{i}", use_container_width=True):
+            btn_label = f"{stamp_labels[i]} ({status_text})"
+            if st.button(btn_label, key=f"stamp_{i}", use_container_width=True):
                 st.session_state.stamps[i] = not st.session_state.stamps[i]
                 st.rerun()
 
@@ -493,27 +478,49 @@ with tab3:
     tier1, tier2, tier3 = st.columns(3)
     with tier1:
         if total_stamps >= 2:
-            st.success("🔓 **2 Stamps Unlocked:**\n5% OFF Next Purchase!")
+            st.success("🔓 **2 Stamps Unlocked:** 5% OFF Next Purchase!")
         else:
-            st.warning("🔒 **2 Stamps:**\n5% OFF Next Purchase")
+            st.warning("🔒 **2 Stamps:** 5% OFF Next Purchase")
     with tier2:
         if total_stamps >= 4:
-            st.success("🔓 **4 Stamps Unlocked:**\nCustom Map Sticker — Put Yourself on the Live Map!")
+            st.success("🔓 **4 Stamps Unlocked:** Custom Map Sticker — Put Yourself on the Live Map!")
         else:
-            st.warning("🔒 **4 Stamps:**\nUnlock Custom Sticker of Yourself on the Map")
+            st.warning("🔒 **4 Stamps:** Unlock Custom Sticker of Yourself on the Map")
     with tier3:
         if total_stamps == 6:
-            st.success("🎉 **6 Stamps Unlocked:**\nEntered into Community Mystery Box Draw!")
+            st.success("🎉 **6 Stamps Unlocked:** Entered into Community Mystery Box Draw!")
         else:
-            st.warning(f"🔒 **6 Stamps:**\nNeed {6 - total_stamps} more stamp(s) for Mystery Box!")
+            st.warning(f"🔒 **6 Stamps:** Need {6 - total_stamps} more stamp(s) for Mystery Box!")
 
-    # Interactive Custom Map Sticker Preview when 4+ stamps unlocked
     if total_stamps >= 4:
         st.divider()
         st.subheader("📍 Customize Your Live Map Sticker")
         s_col1, s_col2 = st.columns([2, 1])
         with s_col1:
             user_tag = st.text_input("Your Name / Handle on the Map Pin:", value="RNSIT Explorer")
-            avatar_choice = st.selectbox("Choose Your Map Sticker Character:", ["🧑‍🎓 Campus Explorer", "🛍️ Super Shopper", "☕ Coffee Lover", "🎨 Local Supporter"])
+            avatar_choice = st.selectbox(
+                "Choose Your Map Sticker Character:",
+                ["🧑‍🎓 Campus Explorer", "🛍️ Super Shopper", "☕ Coffee Lover", "🎨 Local Supporter"]
+            )
         with s_col2:
-            st.info(f"**Live Map Sticke
+            sticker_msg = f"""**Live Map Sticker Active!**
+
+{avatar_choice}  
+**{user_tag}**
+
+Your custom sticker pin is now pinned on the neighborhood map!"""
+            st.info(sticker_msg)
+
+# ==========================================
+# TAB 4: CROSS-MERCHANT CO-OP VOUCHERS
+# ==========================================
+with tab4:
+    st.subheader("🎟️ Cross-Merchant Co-Op Voucher Bundles")
+    st.write("Shop at one neighborhood store and automatically unlock a voucher for the shop next door!")
+
+    v_col1, v_col2 = st.columns(2)
+
+    with v_col1:
+        st.markdown("""
+        <div class="voucher-box">
+            <h4>📚 Book + Brew 
