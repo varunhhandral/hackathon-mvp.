@@ -71,7 +71,7 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>🛍️ Shop Local — Community Business Hub</h1>
-    <p>Discover 30+ neighborhood shops, browse live deals, collect passport stamps & unlock rewards!</p>
+    <p>Explore 30 neighborhood shops from RNSIT, browse live deals, collect passport stamps & unlock rewards!</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -81,7 +81,7 @@ if "stamps" not in st.session_state:
 
 # --- NAVIGATION TABS ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🗺️ Live Shop Map",
+    "🛣️ 2D Route Simulation",
     "🛒 Store Catalog & Deals",
     "🎫 Shop Local Passport",
     "🎟️ Co-Op Vouchers",
@@ -89,25 +89,306 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# TAB 1: INTERACTIVE GOOGLE MY MAP
+# TAB 1: 2D ANIMATED ROAD & 30-SHOP SIMULATION
 # ==========================================
 with tab1:
-    st.subheader("📍 Interactive Neighborhood Business Directory")
-    st.write("Explore **30 local shops** across **Food & Drinks**, **Retail & Goods**, and **Artisans & Services**.")
+    st.subheader("🛣️ Live 2D Road Simulation: RNSIT to 30 Local Shops")
+    st.write("Watch the animated shopper route start from **RNSIT Campus** and connect across **30 local shops** along neighborhood roads.")
 
     col_legend1, col_legend2, col_legend3 = st.columns(3)
     col_legend1.info("🟠 **Food & Drinks** (10 Shops)")
     col_legend2.info("🔵 **Retail & Goods** (10 Shops)")
     col_legend3.info("🟢 **Artisans & Services** (10 Shops)")
 
-    # Clean public embed URL (removed /u/0/ which causes Google to refuse iframe connection)
-    map_embed_url = "https://www.google.com/maps/d/embed?mid=1--QGDTttZxVKEhu_C3_CpBBZENSVtNs&ll=12.902901095458713%2C77.52115182023827&z=16"
-    map_viewer_url = "https://www.google.com/maps/d/viewer?mid=1--QGDTttZxVKEhu_C3_CpBBZENSVtNs&ll=12.902901095458713%2C77.52115182023827&z=16"
+    simulation_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+        }
+        .sim-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+            background: #1e293b;
+            padding: 10px 16px;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 920px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #009688;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        button:hover { background: #00796b; }
+        button.secondary { background: #334155; }
+        button.secondary:hover { background: #475569; }
+        .status-pill {
+            background: #0f172a;
+            border: 1px solid #38bdf8;
+            color: #38bdf8;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        canvas {
+            background: #111827;
+            border: 2px solid #334155;
+            border-radius: 12px;
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
+    </style>
+    </head>
+    <body>
+    <div class="sim-wrapper">
+        <div class="controls">
+            <button onclick="togglePlay()" id="playBtn">⏸️ Pause Route</button>
+            <button class="secondary" onclick="resetSim()">🔄 Restart from RNSIT</button>
+            <button class="secondary" onclick="changeSpeed()">⚡ Speed: <span id="speedLabel">1x</span></button>
+            <div class="status-pill" id="liveBanner">📍 Starting at RNSIT Campus Gate...</div>
+        </div>
+        <canvas id="mapCanvas" width="920" height="540"></canvas>
+    </div>
 
-    components.iframe(map_embed_url, height=500, scrolling=True)
+    <script>
+    const canvas = document.getElementById("mapCanvas");
+    const ctx = canvas.getContext("2d");
 
-    st.link_button("🗺️ Open Full Map in Google Maps App", map_viewer_url, use_container_width=True)
-    st.caption("⚠️ If the map box looks blank, open Google My Maps → Share → turn ON 'Anyone with this link can view'.")
+    // 30 Shops + RNSIT Starting Hub laid out along a realistic road grid
+    const startNode = { id: 0, name: "RNSIT Campus (Start)", cat: "Hub", x: 90, y: 270, color: "#ef4444" };
+
+    // Road waypoints connecting RNSIT through North, Central, and South commercial streets
+    const shops = [
+        // North Main Road (10 shops)
+        { id: 1,  name: "Brew & Bites Cafe",        cat: "Food & Drinks",       x: 170, y: 180, color: "#f97316" },
+        { id: 2,  name: "Campus Xerox & Print",     cat: "Artisans & Services", x: 240, y: 120, color: "#22c55e" },
+        { id: 3,  name: "Krishna Book Corner",      cat: "Retail & Goods",      x: 320, y: 120, color: "#3b82f6" },
+        { id: 4,  name: "Spice & Crisp Bakery",     cat: "Food & Drinks",       x: 400, y: 120, color: "#f97316" },
+        { id: 5,  name: "Urban Style Boutique",     cat: "Retail & Goods",      x: 480, y: 120, color: "#3b82f6" },
+        { id: 6,  name: "Craft & Clay Studio",      cat: "Artisans & Services", x: 560, y: 120, color: "#22c55e" },
+        { id: 7,  name: "Filter Kaapi Junction",    cat: "Food & Drinks",       x: 640, y: 120, color: "#f97316" },
+        { id: 8,  name: "Namma Stationery Mart",    cat: "Retail & Goods",      x: 720, y: 120, color: "#3b82f6" },
+        { id: 9,  name: "Artisan Frame Works",      cat: "Artisans & Services", x: 800, y: 120, color: "#22c55e" },
+        { id: 10, name: "Chaat & Juice Corner",     cat: "Food & Drinks",       x: 840, y: 190, color: "#f97316" },
+
+        // Central Avenue (10 shops)
+        { id: 11, name: "Fresh Mart General Store", cat: "Retail & Goods",      x: 770, y: 270, color: "#3b82f6" },
+        { id: 12, name: "QuickStitch Tailors",      cat: "Artisans & Services", x: 690, y: 270, color: "#22c55e" },
+        { id: 13, name: "Dosa Plaza Express",       cat: "Food & Drinks",       x: 610, y: 270, color: "#f97316" },
+        { id: 14, name: "Metro Footwear & Bags",    cat: "Retail & Goods",      x: 530, y: 270, color: "#3b82f6" },
+        { id: 15, name: "Pottery & Decor Hub",      cat: "Artisans & Services", x: 450, y: 270, color: "#22c55e" },
+        { id: 16, name: "Healthy Bowl Kitchen",     cat: "Food & Drinks",       x: 370, y: 270, color: "#f97316" },
+        { id: 17, name: "Gadget & Mobile Care",     cat: "Artisans & Services", x: 290, y: 270, color: "#22c55e" },
+        { id: 18, name: "Daily Needs Superstore",   cat: "Retail & Goods",      x: 210, y: 270, color: "#3b82f6" },
+        { id: 19, name: "Tandoori & Grill Spot",    cat: "Food & Drinks",       x: 170, y: 350, color: "#f97316" },
+        { id: 20, name: "GreenLeaf Organic Shop",   cat: "Retail & Goods",      x: 240, y: 420, color: "#3b82f6" },
+
+        // South Market Road (10 shops)
+        { id: 21, name: "Handmade Candle Co.",      cat: "Artisans & Services", x: 320, y: 420, color: "#22c55e" },
+        { id: 22, name: "Sweet Tooth Mithai",       cat: "Food & Drinks",       x: 400, y: 420, color: "#f97316" },
+        { id: 23, name: "Trendz Apparel Studio",    cat: "Retail & Goods",      x: 480, y: 420, color: "#3b82f6" },
+        { id: 24, name: "Woodcraft & Gifts",        cat: "Artisans & Services", x: 560, y: 420, color: "#22c55e" },
+        { id: 25, name: "Boba & Cold Coffee Bar",   cat: "Food & Drinks",       x: 640, y: 420, color: "#f97316" },
+        { id: 26, name: "Home Essentials Bazaar",   cat: "Retail & Goods",      x: 720, y: 420, color: "#3b82f6" },
+        { id: 27, name: "Cycle & Repair Workshop",  cat: "Artisans & Services", x: 800, y: 420, color: "#22c55e" },
+        { id: 28, name: "South Spice Tiffins",      cat: "Food & Drinks",       x: 840, y: 350, color: "#f97316" },
+        { id: 29, name: "Campus Sports & Gear",     cat: "Retail & Goods",      x: 760, y: 485, color: "#3b82f6" },
+        { id: 30, name: "Mehendi & Art Corner",     cat: "Artisans & Services", x: 640, y: 485, color: "#22c55e" }
+    ];
+
+    const route = [startNode, ...shops];
+
+    let isPlaying = true;
+    let speedMultiplier = 1;
+    let currentSegment = 0;
+    let segmentProgress = 0;
+    let visitedCount = 0;
+
+    function togglePlay() {
+        isPlaying = !isPlaying;
+        document.getElementById("playBtn").innerText = isPlaying ? "⏸️ Pause Route" : "▶️ Resume Route";
+    }
+
+    function resetSim() {
+        currentSegment = 0;
+        segmentProgress = 0;
+        visitedCount = 0;
+        isPlaying = true;
+        document.getElementById("playBtn").innerText = "⏸️ Pause Route";
+    }
+
+    function changeSpeed() {
+        speedMultiplier = speedMultiplier === 1 ? 2 : (speedMultiplier === 2 ? 4 : 1);
+        document.getElementById("speedLabel").innerText = speedMultiplier + "x";
+    }
+
+    function drawRoads() {
+        // Subtle neighborhood blocks
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(140, 60, 730, 445);
+
+        // Road network background (asphalt)
+        ctx.strokeStyle = "#334155";
+        ctx.lineWidth = 22;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        ctx.beginPath();
+        ctx.moveTo(route[0].x, route[0].y);
+        for (let i = 1; i < route.length; i++) {
+            ctx.lineTo(route[i].x, route[i].y);
+        }
+        ctx.stroke();
+
+        // Dashed center road markings
+        ctx.strokeStyle = "#64748b";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(route[0].x, route[0].y);
+        for (let i = 1; i < route.length; i++) {
+            ctx.lineTo(route[i].x, route[i].y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    function drawCompletedRoute(moverX, moverY) {
+        ctx.strokeStyle = "#00e5ff";
+        ctx.lineWidth = 5;
+        ctx.shadowColor = "#00e5ff";
+        ctx.shadowBlur = 10;
+
+        ctx.beginPath();
+        ctx.moveTo(route[0].x, route[0].y);
+        for (let i = 1; i <= currentSegment; i++) {
+            ctx.lineTo(route[i].x, route[i].y);
+        }
+        ctx.lineTo(moverX, moverY);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    function drawNodes() {
+        // Draw RNSIT Hub
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(startNode.x, startNode.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("🎓 RNSIT", startNode.x, startNode.y - 22);
+
+        // Draw 30 Shops
+        shops.forEach((shop, idx) => {
+            const isVisited = idx < currentSegment;
+            ctx.fillStyle = shop.color;
+            ctx.beginPath();
+            ctx.arc(shop.x, shop.y, isVisited ? 9 : 7, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (isVisited) {
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            // Shop number label
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "bold 10px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(shop.id, shop.x, shop.y - 12);
+        });
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        drawRoads();
+
+        const fromNode = route[currentSegment];
+        const toNode = route[Math.min(currentSegment + 1, route.length - 1)];
+
+        const moverX = fromNode.x + (toNode.x - fromNode.x) * segmentProgress;
+        const moverY = fromNode.y + (toNode.y - fromNode.y) * segmentProgress;
+
+        drawCompletedRoute(moverX, moverY);
+        drawNodes();
+
+        // Draw animated shopper avatar dot
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(moverX, moverY, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Direction arrow / pulse ring
+        ctx.strokeStyle = "rgba(250, 204, 21, 0.5)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(moverX, moverY, 16, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (isPlaying) {
+            if (currentSegment < route.length - 1) {
+                const dist = Math.hypot(toNode.x - fromNode.x, toNode.y - fromNode.y);
+                const step = (1.8 * speedMultiplier) / Math.max(dist, 1);
+                segmentProgress += step;
+
+                if (segmentProgress >= 1) {
+                    segmentProgress = 0;
+                    currentSegment++;
+                    const reached = route[currentSegment];
+                    document.getElementById("liveBanner").innerText =
+                        `🛍️ Shop #${reached.id}/30: ${reached.name} (${reached.cat})`;
+                }
+            } else {
+                document.getElementById("liveBanner").innerText =
+                    "✅ All 30 Local Shops Connected from RNSIT!";
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    animate();
+    </script>
+    </body>
+    </html>
+    """
+
+    components.html(simulation_html, height=620)
 
 # ==========================================
 # TAB 2: STORE ITEMS & LIVE CATALOG
@@ -183,7 +464,7 @@ with tab2:
 # ==========================================
 with tab3:
     st.subheader("🎫 Digital & Physical Shop Local Passport")
-    st.write("Collect stamps across local stores to unlock instant discounts and Mystery Box entries!")
+    st.write("Collect stamps across local stores to unlock instant discounts, your custom map sticker, and Mystery Box entries!")
 
     stamp_labels = [
         "1. ☕ Food & Drinks",
@@ -217,89 +498,22 @@ with tab3:
             st.warning("🔒 **2 Stamps:**\n5% OFF Next Purchase")
     with tier2:
         if total_stamps >= 4:
-            st.success("🔓 **4 Stamps Unlocked:**\nFree Entry to Night Market!")
+            st.success("🔓 **4 Stamps Unlocked:**\nCustom Map Sticker — Put Yourself on the Live Map!")
         else:
-            st.warning("🔒 **4 Stamps:**\nFree Entry to Night Market")
+            st.warning("🔒 **4 Stamps:**\nUnlock Custom Sticker of Yourself on the Map")
     with tier3:
         if total_stamps == 6:
             st.success("🎉 **6 Stamps Unlocked:**\nEntered into Community Mystery Box Draw!")
         else:
             st.warning(f"🔒 **6 Stamps:**\nNeed {6 - total_stamps} more stamp(s) for Mystery Box!")
 
-# ==========================================
-# TAB 4: CROSS-MERCHANT CO-OP VOUCHERS
-# ==========================================
-with tab4:
-    st.subheader("🎟️ Cross-Merchant Co-Op Voucher Bundles")
-    st.write("Shop at one neighborhood store and automatically unlock a voucher for the shop next door!")
-
-    v_col1, v_col2 = st.columns(2)
-
-    with v_col1:
-        st.markdown("""
-        <div class="voucher-box">
-            <h4>📚 Book + Brew Bundle</h4>
-            <p><b>Step 1:</b> Spend ₹200 at <i>Neighborhood Book Corner</i></p>
-            <p><b>Step 2:</b> Get <b>15% OFF any coffee/tea</b> at <i>Brew & Bites Cafe</i></p>
-            <span class="voucher-code">CODE: LOCALBREW15</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="voucher-box">
-            <h4>🎨 Print + Snack Bundle</h4>
-            <p><b>Step 1:</b> Print project notes at <i>QuickPrint Hub</i></p>
-            <p><b>Step 2:</b> Get a <b>Free Veg Puff</b> on ₹100+ order at <i>Spice & Crisp Bakery</i></p>
-            <span class="voucher-code">CODE: CAMPUSPUFF</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with v_col2:
-        st.markdown("""
-        <div class="voucher-box">
-            <h4>👕 Style + Craft Bundle</h4>
-            <p><b>Step 1:</b> Shop at <i>Urban Style Boutique</i></p>
-            <p><b>Step 2:</b> Get <b>₹50 OFF</b> handmade gifts at <i>Craft & Clay Studio</i></p>
-            <span class="voucher-code">CODE: CRAFT50</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.info("💡 **How Merchants Benefit:** Zero ad spend—neighboring shops refer customers directly to each other!")
-
-# ==========================================
-# TAB 5: MYSTERY BOX, QR & EVENTS
-# ==========================================
-with tab5:
-    st.subheader("🎁 Community Mystery Box & Pop-Up Events")
-
-    m_col1, m_col2 = st.columns(2)
-    with m_col1:
-        st.markdown("""
-        ### 🎁 This Week's Community Mystery Box
-        Every participating store contributes **1 signature item or gift voucher** into a single grand prize box:
-        * ☕ Artisanal Filter Coffee Pack
-        * 🕯️ Hand-poured Scented Soy Candle
-        * 📚 Bestseller Paperback Novel
-        * 🎟️ ₹500 Combined Local Dining Vouchers
-        
-        **How to Win:** Complete all 6 stamps on your Passport and drop your card at any participating counter!
-        """)
-
-    with m_col2:
-        st.markdown("""
-        ### 🎪 Monthly Pop-Up Night Market & Campus Perks
-        * **Street Activation:** Live music, local food stalls, and handmade craft pop-ups.
-        * **🎓 Student Saver Pass:** Show your College ID + Passport at any mapped shop for an **extra 5% discount**.
-        * **📱 QR Window Badges:** Look for our green QR stickers on shop doors to scan and view live deals on the spot.
-        """)
-
-    st.divider()
-    with st.expander("📋 Quick Vendor Sign-Up (For New Local Shops)"):
-        with st.form("vendor_form"):
-            shop_name = st.text_input("Shop Name")
-            shop_cat = st.selectbox("Category", ["Food & Drinks", "Retail & Goods", "Artisans & Services"])
-            shop_offer = st.text_input("Sample Passport Offer (e.g., 10% off)")
-            submitted = st.form_submit_button("Join Map Directory")
-            if submitted and shop_name:
-                st.success(f"✅ Thank you! **{shop_name}** ({shop_cat}) has been submitted for map onboarding.")
-                
+    # Interactive Custom Map Sticker Preview when 4+ stamps unlocked
+    if total_stamps >= 4:
+        st.divider()
+        st.subheader("📍 Customize Your Live Map Sticker")
+        s_col1, s_col2 = st.columns([2, 1])
+        with s_col1:
+            user_tag = st.text_input("Your Name / Handle on the Map Pin:", value="RNSIT Explorer")
+            avatar_choice = st.selectbox("Choose Your Map Sticker Character:", ["🧑‍🎓 Campus Explorer", "🛍️ Super Shopper", "☕ Coffee Lover", "🎨 Local Supporter"])
+        with s_col2:
+            st.info(f"**Live Map Sticke
