@@ -9,59 +9,60 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CUSTOM STYLING ---
+# --- CUSTOM STYLING (DARK & LIGHT MODE SAFE) ---
 st.markdown("""
 <style>
     .main-header {
         background: linear-gradient(90deg, #007991 0%, #00b4db 100%);
-        padding: 2rem;
+        padding: 1.8rem;
         border-radius: 12px;
-        color: white;
+        color: #ffffff !important;
         text-align: center;
         margin-bottom: 1.5rem;
     }
-    .main-header h1 {
+    .main-header h1, .main-header p {
+        color: #ffffff !important;
         margin: 0;
-        font-size: 2.4rem;
-        font-weight: 800;
     }
     .main-header p {
-        margin: 0.5rem 0 0 0;
-        font-size: 1.1rem;
-        opacity: 0.95;
+        margin-top: 0.5rem;
+        font-size: 1.05rem;
     }
     .shop-card {
-        background-color: #f8f9fa;
-        border-left: 5px solid #009688;
+        background-color: #ffffff !important;
+        color: #111827 !important;
+        border-left: 6px solid #009688;
         padding: 1.2rem;
-        border-radius: 8px;
+        border-radius: 10px;
         margin-bottom: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+    }
+    .shop-card h4, .shop-card small, .shop-card li, .shop-card b, .shop-card p {
+        color: #111827 !important;
+    }
+    .shop-card .perk-text {
+        color: #00695c !important;
+        font-weight: 700;
+        margin-bottom: 0;
     }
     .voucher-box {
-        border: 2px dashed #009688;
-        background-color: #e0f2f1;
+        border: 2px dashed #00796b;
+        background-color: #e0f2f1 !important;
+        color: #111827 !important;
         padding: 1.2rem;
         border-radius: 10px;
         margin-bottom: 1rem;
     }
-    .stamp-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
-        margin-top: 10px;
+    .voucher-box h4, .voucher-box p, .voucher-box b, .voucher-box i {
+        color: #111827 !important;
     }
-    .stamp-box {
-        border: 2px solid #007991;
-        border-radius: 8px;
-        padding: 15px;
-        text-align: center;
-        background: white;
+    .voucher-code {
+        background-color: #004d40;
+        color: #ffffff !important;
+        padding: 4px 10px;
+        border-radius: 5px;
+        font-family: monospace;
         font-weight: bold;
-    }
-    .stamp-done {
-        background: #009688;
-        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -76,7 +77,7 @@ st.markdown("""
 
 # --- SESSION STATE FOR PASSPORT STAMPS ---
 if "stamps" not in st.session_state:
-    st.session_state.stamps = [True, True, False, False, False, False]  # 2 pre-stamped for demo
+    st.session_state.stamps = [True, True, False, False, False, False]
 
 # --- NAVIGATION TABS ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -92,18 +93,21 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # ==========================================
 with tab1:
     st.subheader("📍 Interactive Neighborhood Business Directory")
-    st.write("Explore **30 local shops** across **Food & Drinks**, **Retail & Goods**, and **Artisans & Services**. Click any pin to see offers!")
+    st.write("Explore **30 local shops** across **Food & Drinks**, **Retail & Goods**, and **Artisans & Services**.")
 
     col_legend1, col_legend2, col_legend3 = st.columns(3)
     col_legend1.info("🟠 **Food & Drinks** (10 Shops)")
     col_legend2.info("🔵 **Retail & Goods** (10 Shops)")
     col_legend3.info("🟢 **Artisans & Services** (10 Shops)")
 
-    # Converted your /edit link to /embed link with your exact coordinates & zoom
-    map_embed_url = "https://www.google.com/maps/d/u/0/embed?mid=1--QGDTttZxVKEhu_C3_CpBBZENSVtNs&ll=12.902901095458713%2C77.52115182023827&z=16"
-    
-    components.iframe(map_embed_url, height=520, scrolling=True)
-    st.caption("💡 Tip: Use the top-left icon inside the map to toggle categories on/off.")
+    # Clean public embed URL (removed /u/0/ which causes Google to refuse iframe connection)
+    map_embed_url = "https://www.google.com/maps/d/embed?mid=1--QGDTttZxVKEhu_C3_CpBBZENSVtNs&ll=12.902901095458713%2C77.52115182023827&z=16"
+    map_viewer_url = "https://www.google.com/maps/d/viewer?mid=1--QGDTttZxVKEhu_C3_CpBBZENSVtNs&ll=12.902901095458713%2C77.52115182023827&z=16"
+
+    components.iframe(map_embed_url, height=500, scrolling=True)
+
+    st.link_button("🗺️ Open Full Map in Google Maps App", map_viewer_url, use_container_width=True)
+    st.caption("⚠️ If the map box looks blank, open Google My Maps → Share → turn ON 'Anyone with this link can view'.")
 
 # ==========================================
 # TAB 2: STORE ITEMS & LIVE CATALOG
@@ -170,7 +174,7 @@ with tab2:
                 <h4>🏪 {shop['name']}</h4>
                 <small><b>Category:</b> {shop['category']}</small>
                 <ul>{items_html}</ul>
-                <p style="color:#007991; margin-bottom:0;"><b>🎁 Passport Perk:</b> {shop['perk']}</p>
+                <p class="perk-text">🎁 Passport Perk: {shop['perk']}</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -202,7 +206,6 @@ with tab3:
     total_stamps = sum(st.session_state.stamps)
     st.divider()
 
-    # Prize Progress Tracker
     st.write(f"### 🏆 Your Reward Progress: **{total_stamps} / 6 Stamps**")
     st.progress(total_stamps / 6)
 
@@ -238,7 +241,7 @@ with tab4:
             <h4>📚 Book + Brew Bundle</h4>
             <p><b>Step 1:</b> Spend ₹200 at <i>Neighborhood Book Corner</i></p>
             <p><b>Step 2:</b> Get <b>15% OFF any coffee/tea</b> at <i>Brew & Bites Cafe</i></p>
-            <code>CODE: LOCALBREW15</code>
+            <span class="voucher-code">CODE: LOCALBREW15</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -247,7 +250,7 @@ with tab4:
             <h4>🎨 Print + Snack Bundle</h4>
             <p><b>Step 1:</b> Print project notes at <i>QuickPrint Hub</i></p>
             <p><b>Step 2:</b> Get a <b>Free Veg Puff</b> on ₹100+ order at <i>Spice & Crisp Bakery</i></p>
-            <code>CODE: CAMPUSPUFF</code>
+            <span class="voucher-code">CODE: CAMPUSPUFF</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -257,7 +260,7 @@ with tab4:
             <h4>👕 Style + Craft Bundle</h4>
             <p><b>Step 1:</b> Shop at <i>Urban Style Boutique</i></p>
             <p><b>Step 2:</b> Get <b>₹50 OFF</b> handmade gifts at <i>Craft & Clay Studio</i></p>
-            <code>CODE: CRAFT50</code>
+            <span class="voucher-code">CODE: CRAFT50</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -299,4 +302,4 @@ with tab5:
             submitted = st.form_submit_button("Join Map Directory")
             if submitted and shop_name:
                 st.success(f"✅ Thank you! **{shop_name}** ({shop_cat}) has been submitted for map onboarding.")
-        
+                
